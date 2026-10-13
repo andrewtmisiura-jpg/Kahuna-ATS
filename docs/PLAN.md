@@ -1,259 +1,228 @@
-# Kahuna ATS: Plan
+# Tidepool: Build plan
 
-Draft for your approval, written Tue Oct 13, 2026 and revised the same day after five independent reviews. The data model is in [DATA_MODEL.md](DATA_MODEL.md).
+Tidepool is Kahuna's hiring system, the third app beside REEF (recurring customers, reef.kahunawindowcleaning.com) and Typhoon (snow removal, typhoon.kahunawindowcleaning.com). It lives at tidepool.kahunawindowcleaning.com; every QR code, link, email and sign-in uses that address. Written Tue Oct 13, 2026, rewritten the same day after your feedback. The data model is in [DATA_MODEL.md](DATA_MODEL.md).
 
-## Decisions so far
+## What changed from the last draft
 
-**Your answers**
+- One release, on your timeline. Everything in the brief's Phase 1 plus the kanban board, the question editor and five small Settings screens ship together. Target Fri Oct 23, hard backstop Fri Oct 30. The Oct 30 / Nov 10 split, the cut order and the "collected now, screens later" table are gone.
+- Texting is in the launch build, from 763-292-2259. Your registration answers (Business, EIN, legal name, applicant texts fit) remove the "ask Quo support" gate. The only gate left is a real-phone test.
+- Phases 2 and 3 follow at once: Phase 2 live Fri Nov 6, Phase 3 live Fri Nov 20. Nothing waits for the first window group interview except the window rubric and wording, which are your work.
+- Temporary hires get a tag on the hire form and are left out of retention numbers.
+- Predictiveness is built in Phase 3 with your numbers (40 to 50 hires a year, 5 to 10 kept); the "three seasons of noise" claim is dropped.
+- The AI shows a 1 to 100 score, computed from per-criterion grades, with the anchoring safeguards kept.
+- Sign-in is Google sign-in against a list of staff emails with a role each. No Google Workspace domain requirement.
+- No Sentry. Railway logs, email alerts and a daily digest instead. Railway, Resend and Cloudflare are already yours, so the account list is short.
+- Configuration moves out of the command line: a one-time seed, then screens. The reviewed change-file command is gone.
+- About a third of the engineering safeguards sized for a bigger team were cut (details under "Decisions"). What stays protects data that cannot be backfilled or a legal position.
 
-- **Employer:** Kahuna employs both roles under Kahuna's EIN and brand. Midwest Access can be added later as an Employer row; if its hiring texts name Midwest Access, expect it to need its own carrier registration, because a registration carries one business name.
-- **Hiring number:** a new dedicated local number (763 or 612) added to your existing **Quo** workspace (you asked for Quo over Twilio; it works, see pushback 1). Only hiring staff get access to it, so applicant threads stay out of the customer inbox. No Twilio account and no toll-free backup.
-- **Timing:** go live Fri Oct 30 with the applicant flow (QR landing, resume link, autosave, consent, source) plus the admin list view, applicant profile, stage changes with history, notes, Google sign-in and CSV. Kanban drag-and-drop and the question editor follow by about Tue Nov 10.
+## Glossary
 
-**Design decisions**
+- **Opening:** one role in one season (Snow Removal 2026-27). The unit every report uses.
+- **Milestone:** the fixed step a stage counts as, so renaming a stage never breaks a report.
+- **Entry code:** the short code inside every QR or link, so a printed code can be closed without reprinting.
+- **Hire record (stint):** one person in one role in one season.
+- **Suppression list:** numbers and emails Tidepool will never message.
+- **Pre-adverse notice:** the letter the background check law requires before a rejection based on a report.
 
-- Email-first launch. Texting through Quo is wired up in early November and turns on behind a switch once Quo confirms hiring texts are covered and the live tests pass. Nothing in the applicant flow depends on texting.
-- Person is separate from Application. One application per person per opening. Matching uses the mobile number, then email, never names, and the public form never changes the contact details on file.
-- A Role is the permanent job definition. An Opening is one role in one season ("Snow Removal 2026-27") and is the cohort for every report.
-- Every pipeline stage maps to a fixed milestone (or none). Reports read milestones, never stage names, and a stage's milestone can't change once applications have passed through it.
-- Disqualified, Withdrew and Not selected are closed outcomes with a required reason, not stages. Hold is a flag.
-- Stage history is an append-only event log with a backdatable "when it happened" time and a fixed "when it was entered" time. One function writes every change, so the current stage always matches the log.
-- Questions are versioned. Publishing creates an immutable form snapshot, and each application pins the version it started on.
-- "How did you hear about us?" is a fixed, optional field on the landing form, so drop-off can be reported by source. The entry channel (which QR code or link) is captured automatically for everyone.
-- Printed QR codes carry a short opaque code on Kahuna's hiring subdomain, looked up in a table.
-- The applicant goes straight into the application on the same screen. The text or email link is only the way back in.
-- Resume links use a reusable, hashed token that expires after 30 days without use. The link never appears in server logs or in the stored message log.
-- A text goes only to a number with a current opt-in, and an app-level suppression list is checked before every text and email.
-- Applicant messages are templated and human-triggered, plus one automatic 24-hour reminder. No AI-written messages. Texts the applicant didn't just ask for wait for the 9am to 8pm Central window.
-- Background work runs from a Railway cron service every 5 minutes over the message table. No Redis.
-- One hire row per person per season. Retention is measured to the earlier of N days or season end, and an on-call tech who never worked a shift is counted separately.
-- AI scoring (Phase 2) is for window cleaning only, labels results Strong, Mixed or Weak, never moves or rejects anyone, and never sees the questions on an Admin-only, audited never-send list.
-- Access needs all three: a Google account on your Workspace domain, an allowlist entry and a role. Any other Workspace sign-in waits as Pending until an Admin approves it. Personal Gmail is allowed only for named exceptions you approve, because those accounts sit outside your 2-step verification and offboarding. The default is no exceptions.
-- Review screens (list, profile, stage moves, notes) are phone-first. Kanban, configuration and reports are desktop-first.
-- Retention is set per record type with a 1-year floor and a legal hold. Expiry strips personal details and keeps the anonymous data reports need.
+## What a snow applicant experiences
 
-## Where I'm pushing back on the brief
+They get an Indeed message with a tidepool.kahunawindowcleaning.com link, or scan a QR. The page shows the job, pay and two sentences: any background check comes after a conditional offer, and we may use software, including AI tools, to help organize applications while a person makes every decision. They type first name, last name, mobile and email, optionally how they heard about us, and may tick an unchecked box, "Text me my application link and updates about this application", with the full disclosure under it. The application opens at once: three short sections, every answer saved as they go with a "Saved" mark. Within a minute a text from 763-292-2259 (if they ticked the box) and an email carry their personal link, which reopens their saved answers on any device for 30 days. If they stop, one reminder arrives the next day between 9am and 8pm, never a second. Submit shows "We got it" and sends an email; the link then shows a status page ("Received", "Under review", and so on; never a closed reason). A reply to the text reaches a person in Quo. STOP stops texts from every Kahuna number until they text START.
 
-1. **Quo works for texting, with conditions, and email still carries the launch.** Quo's API sends texts from a Quo number and notifies the ATS of replies and of delivered or failed texts, at about $0.01 per segment from a prepaid balance (our texts with a link and the full disclosure run 2 segments, about $0.02). Applicant replies land in the hiring number's inbox in the Quo app you already use, visible only to hiring staff. The catch: Quo registered your one carrier campaign automatically from the message types picked at setup (probably customer service), and carriers can filter texts that don't match it. Only Quo support can say whether hiring texts fit or need a registration update (1 day to about 3 weeks, $15 if resubmitted), so ask them in writing this week. Texting turns on only after Quo confirms in writing, the live tests pass, and the opt-in page and privacy policy (with the "mobile numbers are not shared for marketing" clause) are live on your domain, which the registration needs. Other Quo limits we design around: the newer webhook system, the only one that reports failed and undelivered texts, is still labeled beta, the API has no opt-out list (the ATS keeps its own), and API texts fail outright if the prepaid balance runs out (turn on auto-recharge).
+## What staff experience
 
-2. **The text consent box has to be optional, and "honor STOP" covers less than the rules require.** Carriers reject registrations where consent is pre-checked or required to apply, so the box is unchecked and optional with the full disclosure beside it. A text goes only to a number whose latest consent record is an opt-in: leaving the box unchecked, or staff editing in a new number, means no texts to that number. Since April 2025 the FCC requires honoring an opt-out made by any reasonable means ("please stop texting me") within 10 business days, which keyword handling won't catch, so every incoming text is logged on the profile and emailed to hiring@, staff record opt-outs with one click, an unhandled text re-alerts after 2 business days, and the suppression list is checked before every send. Quo only acts on one-word opt-outs (STOP, UNSUBSCRIBE and similar), and an applicant's STOP blocks that phone from every Kahuna Quo number, including your customer line, until the person texts START or UNSTOP. Staff can't undo it, so the ATS never treats a web form as lifting a text opt-out either.
+Sign in with Google on a phone. The snow list opens with counts at the top (started, in progress, submitted) and a strip of things needing attention (unhandled texts, contact conflicts). Tap an applicant to see answers, source, stage history, notes, the text thread, and a "Returning" strip if they applied or worked here before (red if they were marked not eligible for rehire). Move is one small dialog (stage, time, optional note; backdate if you are catching up). Close is another (outcome, reason, note). Hold, Reopen and Contacted are one-tap buttons. Moving to Conditional offer records the offer date from the move's time (backdate it if needed) and asks for the planned start date; moving to Background check asks the check type; both get a panel on the profile. Moving to Hired opens the hire form: crew, start date, Temporary yes or no, and later the leave date, reason and ratings. Replies to texts land in the Quo app and on the profile and are emailed to hiring@; "they asked me to stop" is one click. The kanban board, question editor, entry codes and Settings are desktop screens for Admins. Admins export CSV. Three one-page guides live at /help inside the app.
 
-3. **The applicant flow can't depend on a message arriving, and the reminder belongs in Phase 1.** Venue cell service is unreliable and a mistyped email loses the applicant, so people go straight into the application, email gets typo suggestions and a confirm step, and the link is a reusable hashed token rather than a single-use magic link (Android previews and email link scanners open links before the person does). The brief lists the 24-hour reminder in both the core flow and Phase 2; it ships Oct 30, by text if that number opted in and SMS is on, otherwise by email, only between 9am and 8pm Central, from a scheduled job that survives redeploys.
+## Decisions
 
-4. **Printed QR codes are permanent, and a public form that sends messages is a fraud target.** Codes encode a short opaque code on your hiring subdomain (for example `/q/7KX2QF`), so a code can be closed or redirected without reprinting, and role codes and session codes share one table. The landing form gets a bot check, rate limits stored in the database (per phone, email and code, plus a loose per-IP limit because a whole room can share one Wi-Fi address), a daily send cap with an alert, and duplicate detection that resends the existing link to the contact details on file instead of creating a second application.
+Each line ends with where the detail lives in DATA_MODEL.md.
 
-5. **The data the reports need has to be collected from day one.** Every Phase 3 report depends on facts recorded when they happen (closed-outcome reasons, source, session, stage-to-milestone mapping, backdated times, form versions, consent, the message log, offer and check dates, hire dates), and snow techs hired in November will quit or be let go over the winter. Your Oct 30 list doesn't name reasons, the reminder, hire rows, offer and check dates or the background check guard; I'm keeping them in. After review that is an honest 3 to 4 of the roughly 12 working days, so the admin side starts Wed Oct 21 and the cut order below includes read-only screens that can land Nov 2 to 4 without losing any data.
+- Kahuna employs both roles under its EIN; Midwest Access is a later Employer row. (employer)
+- The hiring number is 763-292-2259 in your Quo workspace, with its own API key and its own webhook scoped to that number, so Typhoon's connection is untouched. The hiring number is the contact applicants see; the office number appears only in the privacy policy. (send rules)
+- Sign-in is Google against an allowlist: an Admin adds an email and a role in Settings > Users; any other email is refused and no row is created. Personal Gmail is fine. Disabling someone in Settings > Users is the only offboarding, so do it the day they leave; their sessions end at once. (app_user)
+- Person is separate from Application; one application per person per opening; matching by mobile, then email, never names. The public form never changes contact details on file. (person)
+- Role is the permanent job; Opening is the cohort. Stages map to fixed milestones; closed outcomes (Disqualified, Withdrew, Not selected) carry a required reason; Hold is a flag. (pipeline_stage, application)
+- Stage history is an append-only log written by one function, with a backdatable "happened" time. (application_event)
+- Questions are versioned; publishing creates a locked form version; each application pins the version it started on and keeps it to the end. (form_version)
+- "How did you hear about us?" is a fixed landing field; the entry code is captured for everyone. (application)
+- Links carry a hashed, reusable token that expires 30 days after last use, never stored or logged readable. (resume_token)
+- Text and email both send at launch. Texting is on from the Oct 15 real-phone test and stays on only if it passes; Settings > Texting turns it off or on afterward. A text goes only to a number with a current opt-in; the suppression list is checked before every send; a global daily cap (default 200) stops runaway sends. (send rules)
+- Consent covers this application only; returning applicants opt in again next season. Staff may answer an applicant's text by hand in Quo; invites, declines and status news go out as templates so they are logged. (consent_event, message)
+- Temporary hires are tagged on the hire form and left out of retention numbers, because their leaving is the plan, not a signal. Set the tag when you hire, not the day someone quits; the record shows when it was set. (hire_stint)
+- AI scoring (Phase 2) shows a 1 to 100 score computed from per-criterion grades, never moves or rejects anyone, and never sees the never-send questions. The first window batch is scored hidden and every decision records whether the score was visible. The AI disclosure is on every landing page from day one, so snow can be scored hidden later if you choose; the default is off. (ai_score, rubric)
+- Review screens are phone-first; kanban, configuration and reports are desktop-first.
+- Retention is per record type with a 1-year floor and a legal hold; expiry strips personal details and keeps anonymous data. (retention_policy)
+- No staging environment: local development with a message sink, then production. Pre-launch, production is the test environment; after launch, Phase 2 is built on a branch with a Railway PR environment and merged on its own date.
+- Cut on purpose, because they protected against risks a 1 to 4 user tool does not carry: the non-superuser database role, the PII column registry and its CI test, the CASCADE schema test, the nightly event-replay check, the DST test matrix, composite foreign keys, language-keyed text, the offline autosave queue, the email confirm step, the rate-limit table, note editing with revisions, reopening answers after submit, versioned message templates, the data-request table, Message Batches, the rubric publish gate, the Quo retry endpoint, the federal-holiday table and per-IP limits.
 
-6. **Stages need fixed milestones, and "Disqualified" is really two outcomes.** Every stage maps to a fixed milestone so renaming "One-on-One Done" or adding "Phone screen" can't break reports, and staff can backdate a move so end-of-week catch-up doesn't distort time in stage; "Applied (started)" becomes a drop-off count, not a board column full of people who never finished. A "Not selected (roles filled)" outcome and a Hold flag are added, because with deliberate over-hiring "we filled the roles" is not a judgment on the person and would corrupt the AI-vs-human report.
+**Never cut:** consent capture with text versions; the opt-in, suppression and daily-cap checks in the single send function; links never stored readable; the stage event log with milestones and reasons; versioned answers pinned to a form version; source and entry code; privacy policy, SMS terms and opt-in page; allowlist sign-in with server-side role checks; the FCRA gate; backups with a tested restore; CSV formula escaping.
 
-7. **Active / Left is the wrong model for seasonal jobs.** Both roles end by design, so every hire eventually becomes "Left", and 90-day retention for a late hire measures the calendar, not fit. We keep one hire row per person per season, count "Completed season" as success, measure retention to the earlier of N days or season end (shown as "pending" until then), and treat "returned next season" as the long-term signal. For on-call snow the default is a season-end rating plus storms worked, and a tech who never worked a storm shows as "never worked", not as retained or pending.
+## Where I am still pushing back
 
-8. **Question predictiveness will be mostly noise for about three seasons.** With 15 hires and 5 leavers, 60% versus 20% on a yes/no question gives p of about 0.25, and across roughly 18 comparisons you should expect one or two false "predictors" a season; knockout questions never show up because every hire answered them the same way. Phase 3 builds count tables with sample-size warnings and a per-leaver review page, changes nothing automatically, and won't be used to tune screening toward "too physical" or "heights" leave reasons, which can stand in for disability.
+1. **The schedule can be fast, and here is what your availability does and does not buy.** It speeds up everything that used to wait days: legal text, pay text and question wording approved within an hour; snow pipeline, check and vendor decisions no longer blocking screens; real-phone tests the same hour a build lands; Settings screens so you enter crews, users and openings without a builder round trip. That is roughly a week of the old calendar, which is why Oct 23 is possible. It does not change the amount of code: about 30 tables, 25 screens, two message providers with webhooks, a cron, sign-in, versioned forms and CSV; the builder's throughput sets the floor. It does not speed up debugging with real carriers and Quo's beta webhooks, where each cycle is deploy, text, wait, read logs, and one bad afternoon costs a day. It does not speed up DNS or Resend verification (done today to take it off the path), or your own homework (reading the legal text properly, the window rubric, the Anthropic account). REEF and Typhoon were weekend projects partly because they had no applicant-facing compliance surface; this one does, and that is where the dry run earns its day. Residual risk: if the Oct 20 dry run turns up something fundamental, the whole launch moves, at most to Fri Oct 30; nothing is split off.
 
-9. **Make the questions measurable and record your strongest signals.** "Last two jobs, how long, why you left" as long text throws away tenure, so it becomes employer, months (a new number type) and a how-it-ended choice, and new questions map to your leave reasons (another job you're keeping, ladder experience, need for a steady 40 hours), plus "18 or older?", ADA-safe "with or without reasonable accommodation" wording, and prior pay on the do-not-ask list (banned in Minnesota since 2024). The one-on-one grades, ladder test and group interview stars become data fields in Phase 2, because they will predict better than anything typed on a phone.
+2. **Quo, the facts that still matter.** Quo's newer signed webhooks (the only ones that report failed and undelivered) are labeled beta, so a text whose delivery event never arrives stays "sent", and that is fine. The API has no opt-out list, so Tidepool's suppression table is the record. A STOP to 763-292-2259 blocks that phone from every Kahuna Quo number, including the customer line and whatever Typhoon uses, until the person texts START or UNSTOP, and staff cannot undo it. So hiring texts stay minimal and transactional, and the profile header and hire form warn when a person's number has a live opt-out: "Ask them to text START to 763-292-2259 before dispatch texts will reach them." The balance is prepaid at about $0.01 a segment and sends fail when it is empty, so auto-recharge goes on and the send function treats an empty-balance error as an alert plus email fallback. You confirmed the registration covers applicant texts; if carriers filter them anyway, delivery receipts in the live test and the first week's digest will show it, and email carries until it is fixed.
 
-10. **AI scoring needs guardrails the brief doesn't have.** Reviewers anchor on a visible recommendation, so scores are labeled Strong / Mixed / Weak, we record whether the score was visible when the human decided, and the first window batch is scored hidden. The rubric tells the model to ignore spelling, grammar, length and language and must score a fixed test set (the same answer in broken English and in short form) the same before it goes live. Flags come from a fixed job-related list instead of free-form "red flags" (which would name kids, health, gaps or "just got out"). Answers that invite those disclosures (two-year plans, slow stretches, employer names, age, essential functions) are never sent, and snow gets no scoring at all, because snow applicants never saw an AI disclosure.
+3. **The consent box stays optional and unchecked, and "honor STOP" covers less than the rules require.** Carriers reject pre-checked or required consent. Since April 2025 an opt-out made by any reasonable means must be honored within 10 business days, which keyword handling will not catch, so every inbound text is logged on the profile and emailed to hiring@, an "Unhandled texts (N)" badge sits at the top of the list until each is marked handled, and staff record an opt-out with one click.
 
-11. **Google domain sign-in is not access control, and "CSV of everything" is the easiest data leak.** Any employee with a company Google account could get in, so sign-in also requires an allowlist entry and a role, new sign-ins wait as Pending, and every action checks the user's live role on the server. CSV becomes a set of exports (questions differ by role and version) that only Admins can run, every export is logged, restricted notes are left out, and cells starting with =, +, -, @, a tab or a carriage return are escaped so spreadsheets don't run applicant text as formulas.
+4. **Printed QR codes are permanent, and a public form that sends messages is a fraud target.** Codes are short opaque codes on tidepool.kahunawindowcleaning.com (for example /q/7KX2QF), so a code can be closed without reprinting. The landing and lost-link pages get Cloudflare Turnstile, no more than 3 link sends to one number or email in an hour, and the daily cap.
 
-12. **"Keep one year" is a floor, and some hiring records live outside the ATS.** Retention is per record type with a 1-year minimum and a legal hold (FCRA claims can come up to 5 years later, TCPA 4), and expiry strips personal details instead of deleting the anonymous data. The ATS blocks a background check before a conditional offer. While a check is open, any rejection must either be marked background-based (naming the check, and waiting 5 business days after its pre-adverse notice) or carry a recorded statement that it doesn't rely on the report. Outside the ATS, you need to export Indeed's full candidate list (screened-out people included) when each posting closes, keep the paper sign-up sheets for a year, and remove any Indeed screener about background checks (Minnesota ban-the-box).
+5. **Everything ships in one release.** The data the reports need (reasons, source, entry code, backdated times, form versions, consent, message log, offer and check dates, hire rows) is captured by the same screens staff use from day one, so there is nothing to collect without a screen.
 
-13. **Some configuration stays in a reviewed seed file until Phase 2.** The brief wants new roles without code changes. That holds from Phase 2, when a settings screen creates roles from a template and edits openings (pay, dates, headcount, open or close), and a stage and picklist editor follows. Until then new content (questions, forms, roles) goes through the reviewed seed file, and edits to live settings (opening dates, pay, headcount, opening or closing an opening, archiving a stage or option, closing a QR code, the employer's Quo hiring number and the texting switch, soft-deleting the dry-run applications) go through a second reviewed command, `config:apply`. It runs the same service-layer checks as the future screens and writes an audit entry per change, so nobody edits production with ad hoc SQL. The builder runs both, so the Oct 30 and Nov 10 dates hold; snow's pipeline and reasons are fixed by Oct 23 anyway. Retention settings and legal holds arrive with the Phase 3 purge job; nothing is purged before then, so until that screen a legal hold is a note plus an audit entry.
+6. **Stages need fixed milestones, and "Disqualified" is really two outcomes.** A "Not selected (roles filled)" outcome and a Hold flag are added, because with deliberate over-hiring "we filled the roles" is not a judgment on the person and would corrupt the AI-vs-human report. "Applied (started)" becomes a drop-off count, not a board column.
 
-14. **Phase 3 reports land after D, not "before spring".** D is the first 2027 window group interview. There is no window data before D, and snow data alone is too thin to tune anything, so the Hires page lands by D, the time and funnel reports by D plus 4 weeks, and retention and predictiveness by D plus 8 weeks.
+7. **Active / Left is the wrong model for seasonal jobs.** One hire row per person per season; "Completed season or term" counts as success; retention is measured to the earlier of N days or season end (shown as pending until then); "returned next season" is the long-term signal. For on-call snow the default is a season-end rating plus storms worked, and a tech who never worked a storm shows as "never worked". Temporary hires are tagged and left out of retention numbers, because their leaving is the plan, not a signal.
+
+8. **Predictiveness is built in Phase 3, and here is what to expect.** With 40 to 50 hires a year, roles kept separate (as the brief asks), the limit is the small group that stays or is rated well, 5 to 10 a year, not the total. The report compares answers for "keepers" (your pick per role: completed the season and rehire eligible by default for window; rated Reliable at season end for snow; also retained 90 days, rated 4 or 5 at 90 days, or returned next season) against everyone else, pooled across all openings of a role. It shows a rate only when the answer group has at least 10 hires, warns under 20, ranks nothing and changes nothing. At your volume an evenly split yes/no question clears the 10 mark in season one and the 20 mark in season two; lopsided splits take longer. That is what "a year or two" means. Knockout questions never show up because every hire answered them the same way. Heights and too-physical leave reasons are never used to tune screening. Tell me roughly how the 40 to 50 splits between snow and window.
+
+9. **Make the questions measurable.** "Last two jobs, how long, why you left" becomes employer, months and a how-it-ended choice; new questions map to your leave reasons (another job, ladder experience, need for a steady 40), plus "18 or older?", ADA-safe "with or without reasonable accommodation" wording, and prior pay on the do-not-ask list (banned in Minnesota since 2024). Your wording changes are in. One-on-one grades, the ladder test and group interview stars become data fields in Phase 2.
+
+10. **The 1 to 100 score, with the safeguards kept.** Reviewers anchor on a visible number at least as hard as on a word, so the first window batch is scored hidden and every decision records whether the score was visible. The number is computed by the app from per-criterion grades and the rubric's weights (so it is reproducible and a weight change can re-score without a model call), shown with the per-criterion grades and rationale and the rubric version beside it. The agreement report treats 70 and above as advance and under 40 as decline (both editable report settings) and shows the score distribution per human decision, so bands can change later without losing anything. Flags come from a fixed job-related list; answers that invite protected disclosures are never sent; a failed or invalid model result shows "not scored", never a low number.
+
+11. **Google sign-in is not access control, and "CSV of everything" is the easiest data leak.** Every server action and route handler runs through one requireRole wrapper that reloads the user's status and role. CSV is a set of Admin-only, logged, formula-escaped exports; restricted notes are left out.
+
+12. **"Keep one year" is a floor, and some hiring records live outside the ATS.** Retention is per record type with a 1-year minimum and a legal hold (FCRA claims up to 5 years, TCPA 4). The ATS blocks a background check before a conditional offer; while a check is open, any rejection is either background-based (naming the check, waiting 5 weekdays after its pre-adverse notice) or carries a recorded statement that it does not rely on the report. See "Things you do outside Tidepool".
 
 ## Stack
 
-- **Next.js App Router, strict TypeScript, current Node LTS.** One app serves applicant pages, admin and webhooks. Business logic lives in a service layer separate from routes, so a CRM API can be added later without rework.
-- **Drizzle ORM with drizzle-kit generated SQL migrations.** Migrations are committed, reviewed and applied as a Railway pre-deploy step; `drizzle-kit push` never touches production. Triggers go in hand-written migration files. Chosen over Prisma because it stays close to SQL, which this model leans on (partial unique indexes, composite foreign keys, triggers, report queries).
-- **Postgres on Railway (Pro plan, US region), production and staging.** Private networking only. The app connects as a role without superuser rights, because Railway's default user is a superuser that could switch off the safety triggers; migrations run as the owner. Railway Postgres is a container on a volume, not a managed database with point-in-time recovery, so we add scheduled volume backups, a nightly `pg_dump` encrypted with a key only you hold and uploaded to a separate bucket with write-only credentials (deleted after 35 days), and one tested restore before go-live.
-- **Better Auth with the Google provider and database sessions.** It has a Drizzle adapter; the Workspace domain check, allowlist, Pending status and roles sit on top. Every server action and route checks the user's live status and role in the service layer, not just in middleware. Sessions have a fixed lifetime, and disabling a user or changing a role ends their sessions. Auth.js is the fallback if the adapter misbehaves.
-- **Quo API** for texts, from the new hiring number: send through Quo's v1 messages endpoint; Quo's newer signed webhooks (Standard Webhooks format, checked against the raw body, idempotent by Quo message id, and limited to the hiring number so customer texts never reach the ATS) for incoming texts and for delivered, failed and undelivered status. The ATS keeps its own opt-out list because Quo exposes none, and replies to HELP itself if Quo doesn't. All Quo calls sit behind one small provider module, so switching to Twilio later is a contained change if Quo ever falls short. The API key (Owner or Admin creates it) lives in a Railway environment variable.
-- **Resend** on a sending subdomain, paid plan from launch (the free tier caps daily volume). From "Kahuna Window Cleaning Hiring", Reply-To the hiring@ Google Group, DKIM/SPF/DMARC set, signed webhooks for bounces and complaints, each message's id sent as the idempotency key.
-- **Jobs: a Railway cron service every 5 minutes** (Quo's API has no scheduled send, so the reminder is ours anyway). It sends due messages from the message table (claimed with `SELECT ... FOR UPDATE SKIP LOCKED`), queues reminders, prunes rate-limit rows and runs a nightly consistency check. Survives redeploys; no Redis, and no separate job table until Phase 2 scoring. Resume links send immediately in the request; cron retries failures.
-- **UI:** Tailwind and shadcn/ui; react-hook-form with zod schemas shared by client and server; TanStack Table for the list; dnd-kit for the kanban; libphonenumber-js; a QR library with SVG output for print.
-- **Cloudflare Turnstile** bot check on the landing and lost-link pages only. The application opens with a full page load, so the script doesn't follow the applicant into their answers.
-- **Sentry** for errors, with request bodies, personal data and application links scrubbed.
-- **Time:** all Central-time math goes through one helper and servers run on UTC. Daylight saving time ends Sun Nov 1, two days after launch, and tests cover it.
-- **Vitest** for the service layer against real Postgres (versioning, event log and voiding, tokens, consent and send rules, milestone math, concurrent saves and moves, CSV escaping). **Playwright** on iPhone and Android viewports: landing, autosave, resume on a second device, a phone that saves offline and reconnects after another device edited the same answers, submit, an admin stage change.
-- **GitHub Actions** runs typecheck, lint and tests against a Postgres service container; Railway deploys `main` only after checks pass. Staging has seed data and a message sink that never sends real texts or emails.
-- **Phase 2:** Anthropic SDK with structured JSON output, the model id in config, no tools, Message Batches for re-scoring.
-- **Versions:** none are pinned in this plan. The builder pins exact versions when scaffolding, checked against current docs rather than memory.
+- Next.js (TypeScript) on Railway with Postgres: one project, a web service, a cron service and Postgres. Drizzle with generated SQL migrations run on pre-deploy. Business logic in a service layer, so a hires API can be added later without rework.
+- Google sign-in through Better Auth, email allowlist and roles on top. Reuse the OAuth client Typhoon or REEF already has if it is External (add Tidepool's redirect URL); if it is Internal and anyone uses a personal Gmail, create a new External client with only email and profile scopes (no Google verification needed).
+- Quo for texts from 763-292-2259: its own API key labeled Tidepool, send through the v1 messages endpoint, the newer signed webhooks scoped to the hiring number's id, which the builder looks up from +17632922259 through the phone-numbers endpoint. The builder reads Typhoon's Quo code and existing webhooks first and never changes a webhook it did not create. Hand-typed replies from the Quo app appear on the profile.
+- Resend for email, reusing the sending domain already verified for REEF or Typhoon; From "Kahuna Window Cleaning Hiring", Reply-To hiring@; click and open tracking off; bounce and complaint webhooks. Confirm the plan has headroom (the free tier is 100 emails a day, and an Indeed launch day can exceed it).
+- Cloudflare Turnstile on the landing and lost-link pages only. DNS: one CNAME to Railway set up the same way typhoon. is; if proxied, SSL mode Full (strict).
+- Cron every 5 minutes: sends due messages, queues the 24-hour reminder, writes a heartbeat, runs the nightly pg_dump to a Cloudflare R2 bucket at 3am Central (35-day lifecycle rule, no app-level encryption; R2 encrypts at rest). Railway's scheduled Postgres backups on as well. One restore test before go-live.
+- Errors: Railway logs plus one notifyAdmin helper that emails your alert address (at most one email per error kind per hour) on a failed send, a webhook signature failure, a job exception, an empty Quo balance or the daily cap. /health returns 200 only when the database answers and the cron heartbeat is under 15 minutes old; a free uptime monitor pings it. A 7am Central digest: started, submitted, texts sent, delivered, undelivered and failed, emails bounced, unhandled texts, errors, backup age.
+- Secrets: you paste every key (Quo, Resend, Turnstile, Google, R2) straight into Railway variables. The builder never receives a secret in chat and never prints one.
+- A read-only database user for your own questions, so you can point Claude Code at the data before and after the report screens exist.
+- Tests: Vitest against real Postgres for the protective set (transition function, FCRA gate, send rules, STOP/START/HELP handling, tokens, form versioning and locking, landing matching, CSV escaping, send-once under two cron passes, two concurrent moves of one application, the Central-time helper across Nov 1). Playwright on one phone viewport: landing to submit with a resume in between, and admin sign-in to stage change. CI runs typecheck, lint and tests on every push; the builder runs them before pushing; Railway deploys main on push.
+- Phase 2: Anthropic SDK with structured output (a strict schema the model must follow), model id in config, no tools, re-scoring sequentially through the job table.
+- Running cost, roughly: Railway (your plan plus usage), Resend's paid plan if the free tier is too tight, the Quo number at $5 a month plus about a cent per segment (a link text with the full disclosure is usually two segments, so about 2 cents), Cloudflare free, R2 under a dollar, and in Phase 2 the Claude API at a few cents per application with a monthly cap you set. Check current prices when you approve.
 
-## Phase 1 scope (go live Fri Oct 30)
+## Phase 1: one release (target Fri Oct 23, slip Tue Oct 27, hard backstop Fri Oct 30)
 
-### Must ship Oct 30
+Nov 1 is a Sunday, so Fri Oct 30 is the last date.
 
-Applicant side:
-- `/q/<code>` resolver with daily scan counts. Closed codes fall back to the role page. The launch codes (snow role QR and the snow Indeed-message link) are created by script.
-- Role landing page: summary, pay range, benefits, "any background check comes after a conditional offer."
-- Landing form: first and last name, mobile (validated), email (typo suggestions and confirm), optional "How did you hear about us?", optional unchecked text consent with full disclosure, bot check, rate limits. A retried submit on weak signal returns the same application.
-- Straight into the application: 3 to 5 sections, progress bar, per-field autosave with retry and an offline copy that never overwrites newer answers saved from another device, "Saved" indicator, required checks only on submit.
-- Resume link by email at once (and by text once SMS is on and the number opted in). "Lost your link?" page that never reveals whether a match exists. A known mobile and email resend the link to the details on file; a mobile and email that point at different people go to staff instead of creating an application.
-- Submit: on-screen confirmation and email, plus a stored snapshot of the submitted answers. Afterward the link opens a status page, not the answers.
-- One 24-hour reminder, 9am to 8pm Central, never twice, skipped for submitted, closed or do-not-contact applicants.
-- Privacy policy, SMS terms and the public opt-in page. Applicant pages are noindex, send no referrer, and load no third-party scripts except the bot check on the landing and lost-link pages.
+**Applicant:** /q/<code> resolver with daily scan counts (closed codes fall back to the role page); role landing page with pay, benefits, the background-check and AI notices; landing form (name, mobile, email with typo hint, optional source, optional unchecked text consent with the full disclosure, Turnstile); straight into the application; per-field autosave (retry three times, "Saved" or "Not saved, check your connection", a stale device never overwrites a newer answer); resume link by text (if opted in) and email at once; lost-link page; submit with confirmation email and a status page; one 24-hour reminder (text if opted in, else email, 9am to 8pm Central); privacy policy, SMS terms, opt-in page.
 
-Admin side:
-- Google sign-in with allowlist, Pending state and roles (Admin, Hiring Manager; Viewer only if your staff list names one).
-- List view per opening: counts at the top (started, in progress, submitted, submit rate, and the same per entry code), filters (stage, status, source, entry code, dates, hold, attention flags, contact conflicts), search, stage dropdown, bulk move. Works on a phone.
-- Applicant profile with next/previous: answers with question version, stage history, notes (with a restricted flag; edits keep the old text), messages in and out, consent records, resend or revoke link, contact edits (audited), shared-phone flag, text opt-out and do-not-contact buttons, Indeed apply date.
-- Stage change dialog: backdatable time, closed outcomes with reason and note, Hold, Reopen, "Contacted" marker. If someone else changed the application first, it says who and reloads.
-- Offer and check capture in the same dialog: moving to Conditional offer records the offer date (and planned start if known); moving to Background check records the check type and requested date. The profile shows each check, where staff update its status and record its pre-adverse notice date (write-once except for Admins).
-- FCRA guard: no background check without a live conditional offer; a background-based disqualification names the check it relies on and waits 5 business days after that check's pre-adverse notice; while a check is open, any other rejection needs a recorded statement that it doesn't rely on the report.
-- Hire row created automatically when an application reaches Hired; undoing that move voids it.
-- Suppression list with email bounce and complaint handling.
-- CSV export set: Admin-only, logged, formula-escaped, with a dictionary file so codes can be read outside the app.
+**Admin:**
+- Google sign-in with allowlist and role.
+- List view: counts, filters, search, single and bulk stage move, attention strip.
+- Kanban: every drag carries the row's version; a conflicting move says who changed it and reloads; drags into Offer, Check, Hired or a closed outcome open the same dialogs as the list.
+- Profile: answers with version, stage history, notes with a restricted flag, messages in and out, consent, resend or revoke link, audited contact edits, opt-out and do-not-contact, inbound text handling, returning-applicant strip, contact-conflict banner, Admin-only "Delete test application".
+- Move and Close dialogs: backdate, closed outcomes with reason, hold, reopen, contacted.
+- Offer and check panels with the FCRA gate; hire form with the temporary flag.
+- Question editor: draft, publish a locked version, reworded-or-new prompt, do-not-ask list, change reason; applications already started keep their version.
+- Settings:
+  - Openings: status, dates, season dates, pay, benefits, headcount; cannot open without pay text and an opens-on date.
+  - Users: email, role, disable.
+  - Texting: on or off, help contact, daily cap, hiring number read-only.
+  - Entry codes: create with label and channel, close, download QR as SVG and PNG, daily scan counts.
+  - Picklists: add, relabel, archive; this is how you enter crews.
+- CSV export set with dictionary files.
+- Suppression with bounce and complaint handling; Quo send and webhooks with STOP, START and HELP handling.
+- /help guides.
 
-Platform:
-- Railway production (a shell on the hiring subdomain from Oct 15, serving the legal and opt-in pages from Oct 16) and staging, migrations on pre-deploy, a non-superuser app role, backups plus the encrypted off-site dump, a tested restore, Sentry, CI, Playwright.
-- Seed data from DATA_MODEL.md: Kahuna, two roles, pipelines, both question sets, picklists, legal text, templates, the launch codes and a "Snow dry run" opening for Oct 27 to 28. Loaded from a reviewed seed file by a manual, insert-only loader that creates real version records and never edits a published one. Changes to live settings go through `config:apply` (pushback 13), which is how the dry run gets closed and the snow opening opened on Oct 29.
+**Platform:** Railway web, cron and Postgres; migrations on pre-deploy; db:seed (one script, run once against an empty database and locally: employer, your Admin user, both roles, both pipelines, picklists, legal text v1, templates v1, snow form v1 published and window form v1 as a draft, both openings (snow open with the pay text you approve Oct 14, window a draft), the two launch entry codes; re-running is a no-op by key); nightly dump with one tested restore; CI; alerts, digest and /health; read-only database user.
 
-### Ships by ~Nov 10 (in this order)
+If you confirm snow will run group interview sessions this fall, the session record and per-session QR move from Phase 2 into this list.
 
-1. Quo wiring: send path, the signed webhook for incoming texts and delivery status, the inbound text screen, opt-out handling, HELP replies, the first-text disclosure, and live tests on staff phones: a normal send, STOP, START, HELP, a send to an opted-out number, an empty prepaid balance, whether API-sent threads show for every hiring staff member in Quo, whether replies typed by hand in Quo reach the ATS, and whether Quo confirms START. The tests run in production before texting is switched on, through an allowlist of staff test numbers (staging never sends real texts). This is the gate for turning texting on.
-2. Hire form and offer and check panel on the profile: start date, crew, last day worked, end date, outcome, reason, rehire eligible, 30 and 90 day ratings, season-end rating and storms worked (snow), offer pay and response, check vendor, status and dates, with edit history. Needed before the first snow hire starts or leaves.
-3. Kanban drag-and-drop board (desktop-first).
-4. Question editor: draft, publish a new locked version, "reworded or new question?" prompt, do-not-ask list, required change reason. Until then question changes go through the reviewed seed file, which still creates versions.
-5. Entry code screen: create a code, download the QR as SVG or PNG. Group session records with a per-session QR join it only if you confirm by Oct 23 that snow will run sessions; otherwise they ship with the Phase 2 group interview tools.
+**Slip rules.** If the Oct 20 dry run fails on something fundamental, go-live moves to Tue Oct 27 with everything. If Oct 27 fails, Fri Oct 30 is the last date, with everything. If even that is at risk, I will ask you at the Oct 27 go/no-go whether kanban (the list makes the same moves), the question editor (snow form v1 is seeded), the wide CSV export or bulk move may trail by a week; nothing trails without your say-so. Nov 1 is the daylight saving change; the Central-time helper and its test cover it, and the builder checks the first reminders sent on Nov 2.
 
-Texting switches on once item 1 passes and Quo has confirmed in writing that hiring texts are covered (after any registration update), whichever comes later.
+### Schedule
 
-### Collected in Phase 1, screens come later
+Assumes the builder works every day including both weekends, you answer within hours, and gates decide go-live, not the calendar.
 
-These are captured from the first applicant because they can't be reconstructed afterward.
-
-| Data | Feeds | Screen arrives |
+| Day | Builder | You |
 |---|---|---|
-| Stage events with "happened" and "entered" times, milestone mapping | Time to hire, time in stage, funnel | Phase 3 |
-| Closed-outcome reasons and notes | Reason breakdowns, defending a decision | Phase 3 |
-| Source (from the landing form), entry code, scanned session, Indeed apply date | Source, drop-off and session reports | Phase 3 |
-| Pinned form version, answers stored by option key, submitted-answer snapshots | Predictiveness across versions, defending a decision | Phase 3 |
-| Daily QR scan counts | Scans to starts | Phase 3 |
-| Consent events with the exact text version shown | Proof of opt-in | Profile now, report Phase 3 |
-| Message log with delivery status | Time to first contact, deliverability | Phase 3 |
-| Offer and background check dates | Time to offer, FCRA proof | Panel by Nov 10 |
-| Hire rows with dates and outcomes | Retention | Hire form Nov 10, Hires page Phase 3 |
-| Audit log (edits, exports, note revisions) | Audit viewer | Phase 3 |
+| Tue Oct 13 | Rewrite PLAN.md and DATA_MODEL.md; scaffold the repo; read Typhoon and REEF for sign-in, Resend, Railway and Quo patterns | Approve both documents; DNS CNAME for tidepool.kahunawindowcleaning.com; GitHub access to the Typhoon and REEF repos (or a short note on how they do sign-in, Resend and Quo); Tidepool's redirect URL on the existing Google OAuth client, or say there is none; which Resend sending domain is verified; your own email for the first Admin account (the rest, with roles, before the Oct 20 dry run) |
+| Wed Oct 14 | Railway project (web, cron, Postgres); schema, migrations, db:seed; Google sign-in with allowlist; shell live on the domain; consent text, privacy policy and SMS terms drafts by noon | Approve the drafts, snow pay and benefits text, help contact; name who reads hiring@ and answers 763-292-2259 |
+| Thu Oct 15 | Applicant flow end to end in production: resolver, landing, application, autosave, tokens, submit, status page; Resend; Quo send and webhooks; `quo:connect` (looks up the hiring number's id and turns texting on); cron sender and reminder | Morning: create the Quo API key (labeled Tidepool) when asked, paste it into Railway, turn on auto-recharge. Evening: first real text test on one staff phone (link arrives, STOP, START, HELP, a hand reply typed in Quo shows in Tidepool, nothing from the hiring number appears in Typhoon) |
+| Gate A (end of Oct 15, latest end of Oct 16) | A real round trip works in production: start on a phone, text and email arrive, resume from the text link, submit, confirmation email. Missed by Oct 16: target moves to Oct 27 at once | |
+| Fri Oct 16 | Admin core: list, profile, Move and Close, offer and check panels, FCRA gate, notes, inbound text handling with one-click opt-out, suppression plus Resend bounce and complaint webhook | Snow season dates, headcount, whether snow uses one-on-ones, which checks apply and the vendor; recruit 3 to 5 dry-run testers (iPhone and Android, at least three carriers) for Oct 20 |
+| Sat Oct 17 to Sun Oct 18 | Kanban; question editor; the five Settings screens; hire form with the temporary flag; CSV export set; returning-applicant strip | Optional: try the screens Sunday evening |
+| Mon Oct 19 | Vitest protective set, two Playwright flows, nightly pg_dump to R2 and the restore test into a scratch Postgres, alerts, digest, /health, /help guides, fixes | 30-minute production walkthrough with test applications |
+| Tue Oct 20 | Dry run 1 (script below); fix the list the same day | Dry run with your testers |
+| Wed Oct 21 | Remaining fixes; dry run 2 on failed items only; go/no-go at 5pm against Gate B | Run the acceptance checklist and sign off |
+| Thu Oct 22 | Code freeze at noon; delete test applications; QR test sheet | Indeed cleanup (remove any background-check screener, add the pay range); scan the test sheet on an iPhone and an Android |
+| Fri Oct 23 | Go-live; watch logs, Quo delivery and first submissions all day | Paste the Indeed-message link into Indeed's message template and auto-reply in the morning; available all day |
 
-### Cut order if the schedule slips
+### Dry run and gates
 
-Oct 30 items, first cut to last. Items 1 to 5 are read-only or convenience screens over data that is still captured from day one, so they can land Nov 2 to 4 with nothing lost:
-1. Messages and consent panels on the profile (the data is still logged).
-2. List counts per entry code (overall counts stay).
-3. CSV long files other than answers, stage events and the dictionary.
-4. The nightly consistency-check email (the check itself can wait a week; tests cover the same rules).
-5. The offline queue in autosave (saves still retry and never overwrite newer answers; snow mostly applies from home through the Indeed link).
-6. Bulk move in the list view (single moves remain).
-7. Milestone-date columns in the wide export (the stage events file carries the same facts).
-8. "Lost your link?" page (staff resend from the profile; applicants call the office).
-9. The offer and check fields in the stage dialog. Even then, the move into Conditional offer still creates the offer row automatically with its date (that part costs almost nothing), moves into Hired stay open so early snow hires are recorded, and only moves into Background check are blocked (with background-based reasons hidden) until the November panel ships.
+**Dry run (Tue Oct 20, 3 to 5 testers on iPhone and Android across at least three carriers):** receive an Indeed-style message with the link, open it inside the Indeed app browser, start, leave, resume from the text link, resume from the email on a second device, submit. Staff: see it in the list and on the board, move a stage, backdate a move, close with a reason, add a note, resend a link, run a CSV. Texting: one tester texts STOP then START and the profile shows both; one texts HELP and a question; a staff member answers by hand in Quo and the reply appears in Tidepool. Email lands in Gmail, Outlook and iCloud inboxes, not spam.
 
-Nov 10 items: session QR is cut first (unless snow sessions are confirmed), then the entry code screen. Quo wiring and the hire form are not cut. Kanban and the question editor are not cut either: if either slips, it lands by Tue Nov 17.
+**Gate B (go-live):** every staff member has signed in; the dry run passed or its fixes were re-tested on a phone; texts delivered on three carriers; the restore test done; privacy policy, SMS terms and opt-in page live; you approved consent text, snow questions and pay text; sms_enabled on; test applications deleted; your acceptance checklist signed.
 
-**Never cut:** consent capture with text versions; the opt-in and suppression checks in the single send function; links never stored readable; the stage event log with milestones and reasons; versioned answers pinned to a form version; source and entry code; privacy policy, SMS terms and opt-in page; allowlist sign-in with server-side checks; the FCRA guard; backups with a tested restore.
+**QR gate:** no printing before Gate B. Print one test sheet, scan it on an iPhone and an Android, confirm the entry code shows on the resulting profile, then print in bulk. Earliest Oct 22.
 
-## Phase 1 calendar
+### Before you say "live" (about 45 minutes, Wed Oct 21)
 
-| Date | Builder | You |
-|---|---|---|
-| Tue Oct 13 | Plan and data model delivered | Blocking answers (done). Send the domain and Workspace domain(s) today if you can; book counsel for Oct 15 to 16 if you want legal review |
-| Wed Oct 14 | Repo, CI, Railway staging and production shells, draft legal text (no schema until you approve the data model) | Quo: check the registration in Trust center, email Quo support about hiring texts, add the hiring number, create the API key, turn on auto-recharge. Railway, Resend, Sentry, Cloudflare, Google OAuth client, personal Gmail exceptions (if any), confirm DNS access |
-| Thu Oct 15 | Schema, migrations and seed loader once approved; privacy policy, SMS terms and consent text ready for you; production shell on the hiring subdomain | Approve this plan and the data model; add DNS records; forward Quo support's answer when it arrives |
-| Fri Oct 16 | QR resolver, landing page and application form on staging; legal pages and opt-in page live in production | Approve legal text, consent scope and the three launch emails; snow wording, pay, logo, HELP contact; hiring@ group set up and tested. DNS decision: if records aren't verified today, buy a hiring domain today |
-| Mon Oct 19 to Tue Oct 20 | Autosave, submit, resume tokens, email, lost-link page, reminder and cron, bot check, rate limits, consent and suppression, contact conflicts; Playwright for the applicant flow | If Quo says the registration needs an update, submit it now that the opt-in page is live |
-| Wed Oct 21 to Fri Oct 23 | Sign-in, allowlist, roles, list, profile, notes, stage changes with reasons, backdating, Hold, offer and check capture, FCRA guard, hire rows | Staff list (Thu). Background check vendor, snow season dates, snow pipeline, first expected snow offer date, flyers or not, in-flight candidates, backup bucket (Fri) |
-| Mon Oct 26 | CSV exports, QR generation, backups and the encrypted off-site dump | 30-minute admin walkthrough on staging; if flyers: approve QR artwork, print one test sheet |
-| Tue Oct 27 | Production deploy with the "Snow dry run" opening open; restore test from the off-site dump; Playwright against production | If flyers: scan the test sheet on iPhone and Android; print in bulk only after it passes |
-| Wed Oct 28 | Support the dry run, triage the fix list | Staff dry run of the snow path (#18) |
-| Thu Oct 29 | Fixes, code freeze at 3pm, close the dry run, open the snow opening | Sign off on the fixes; paste the snow link into Indeed's message template and auto-reply |
-| Fri Oct 30 | Go live; watch Sentry, email delivery and first submissions | Available all day |
-| Nov 2 to Nov 10 | Anything cut from Oct 30 (Nov 2 to 4), then the Nov 10 list in order; texting on once the Quo wiring passes and Quo has confirmed coverage | Crew list by Fri Nov 6; a staff phone for the Quo live tests |
+1. From your phone, open the Indeed-message link, start, close the browser, open the email link on another device, see your answers, submit, get the confirmation email.
+2. Tick the text box, get the link by text from 763-292-2259, reply STOP, see the profile show opted out and the next message go by email, reply START.
+3. Leave an application unfinished and get exactly one reminder the next day inside 9am to 8pm.
+4. Every staff account signs in; a Gmail not on the list is refused.
+5. On a phone: filter the list to Submitted, open a profile, move to Reviewed with a backdated time, add a note, disqualify with a reason, reopen.
+6. On desktop: drag a card on the kanban and see the move in the history with your name.
+7. Edit a question, publish v2, confirm a new application shows the new wording and an old one keeps the old.
+8. Create an entry code in Settings, download the QR, scan it, see the code on the resulting profile.
+9. Move someone to Hired, mark them Temporary with a leave date, confirm the hire record.
+10. Export CSV, open it in Google Sheets; a cell starting with = shows as text.
+11. The builder shows you: last night's dump restored into a scratch database with the list view open; a failed-send alert email; the daily digest; an UPDATE on the event log rejected; an anonymous call to a server action refused.
 
-Weekends are builder buffer. Nothing on them needs you.
+## Phase 2 (Mon Oct 26 to Fri Nov 6)
 
-## Phase 2
+Built on a branch with its own Railway environment while the first live week runs on fixes only.
 
-**Deadline anchor:** D = the date of the first 2027 window cleaning group interview, which you confirm by early December. Phase 2 is in production by **D minus 3 weeks**, so the rubric can be run against sample answers and the test set before real applicants arrive. Your rubric draft is due **D minus 6 weeks**. If D is in early March, production is about Feb 12 and the rubric is due about Jan 22.
+- Oct 26 to 28: group sessions (records, per-session QR, attendee entry with a tablet door check-in page as the default and paper as fallback, exact-phone matching, staff-confirmed name matches, stars with a reason picklist and a concern mark); interview record with grades and the ladder-test assessment; template editor with the Phase 2 templates (one-on-one invite with booking link, one-on-one reminder, decline, status update); stage editor and "New role from template" in Settings. From this point you add a role yourself: Settings, New role, edit the questions and stages, open an opening with pay and dates.
+- Oct 29 to Nov 3: rubric editor with "Try it" (optional sample answers scored on demand; publishing needs a written reason, not a passing run); scoring job (1 to 100 computed score, per-criterion 1 to 5 grades, hidden or visible mode, stored input snapshot, re-score); review decisions written automatically; AI disclosure editable as a legal text version.
+- Nov 4 to 6: tests against sample window answers, fixes, live Fri Nov 6.
 
-Scope:
-- Rubric editor (Admin only): draft criteria with stable ids, strong, acceptable and weak guidance, weights, the question lineages each criterion reads, and a fixed job-related flag list; run the test set, which must pass; publish with a written reason. A criterion whose guidance changes meaning is marked, so reports stop pooling across it.
-- AI scoring on submit for window cleaning: only the questions the rubric reads are sent, never the never-send list. Scores stored with rubric version, model id, prompt version and the exact data sent. Re-scoring through batches. Rationale keyword scan with Admin alerts.
-- Review decisions (Advance, Hold, Decline) recording whether the AI score was visible. The decision compared with the AI is the **screening** decision: for a scored application, a disqualification, a move to One-on-One Invited or later, or a Hold writes it automatically (a later screening action supersedes a Hold). Not selected and Withdrew closures, a move to Reviewed, and anything after the applicant reaches One-on-One Invited write nothing. So quick declines can't drop out of the agreement report, and a later ladder-test failure isn't counted as the reviewer disagreeing with a Strong score. The first window batch is scored hidden.
-- AI disclosure on the application, reviewed by counsel. Snow is never sent to the AI; the pipeline is tested with the rubric's fixed test set and sample window answers instead.
-- Group interview tools: session records and per-session QR (if not shipped in November), sign-in entry (paper with a phone column, or a door check-in), automatic matching by phone, staff-confirmed name matches, stars with a job-related reason picklist and a concern mark.
-- One-on-one record: booked time (Google booking link in the invite), interviewer, A+ to F category grades, recommendation, Notion link. Ladder test as Pass, Fail or Did not attempt.
-- Template editor and the Phase 2 templates (one-on-one invite, one-on-one reminder, decline, status update). A group invite template only if you decide the ATS sends invites.
-- Settings, before the window opening opens: role and opening screen (create a role from a template, edit pay, benefits, dates and headcount, open or close an opening) and the stage and picklist editor. A used stage is archived and replaced, never remapped.
-- Person merge tool (Admin only), for returning workers who come back with a new phone and email.
+**Gate:** scoring runs end to end on sample window answers in production with scoring mode off for both roles; the input-snapshot test (no name, phone or email) passes; you have an Anthropic key with a monthly cap (by Thu Oct 29).
 
-## Phase 3
+**Your acceptance:** create a test role from a template without the builder; run a group session from creation to a star on a phone in five minutes; the same sample answer in standard, short and broken-English form scores within a few points; a one-on-one invite goes out as a text from a real stage move.
 
-Deadlines are tied to the same date D:
-- **By D:** Hires page (list, edit, season-end outcome, crew, rehire; reuses the November hire form), so window hires are recorded from the first one. Single-person record export for Minnesota personnel-record requests, which need a response within 7 working days (handled by a manual query until then).
-- **By D plus 4 weeks:** time to hire, time in stage, funnel, session attendance, drop-off and time to first contact reports.
-- **By D plus 8 weeks:** retention, question predictiveness and AI-vs-human-vs-retention screens. They will show "pending" and small-sample warnings until the season ends, and that is expected.
-- **Before Sep 2027:** retention settings screen (1-year floor enforced, audited) and legal hold place and release, then the retention purge job (which also deletes the matching texts in Quo if its API allows it, otherwise a documented manual cleanup) and the audit log viewer, ahead of the first records passing the 1-year floor in Nov 2027. Historical hire import if you have the data.
-- **When the CRM exists:** a hires-only API. Applicant contact details never flow to the CRM.
+The window rubric, the window question wording and pay, and your approval of the AI disclosure (counsel optional) are owner work and gate the spring window opening, not this release; scoring stays off for window until the rubric is published.
+
+## Phase 3 (Mon Nov 9 to Fri Nov 20, then one trailing item)
+
+- Nov 9 to 11: Hires page first, so November snow hires are visible on a screen (the Phase 1 hire form records them until then): temporary flag, season-end outcome, crew, rehire, ratings, a Temporary filter; single-person record export for Minnesota personnel-record requests.
+- Nov 12 to 16: drop-off, time to hire, time in stage, funnel, session attendance, time to first contact, retention (temporary and never-worked as their own buckets).
+- Nov 17 to 19: predictiveness (keeper outcome options above), AI versus human versus retention, audit log viewer, a Today page (unhandled texts, stale Submitted, hired people with a live text opt-out, returning applicants marked not eligible).
+- Fri Nov 20: live; snow data fills the reports from day one, showing "pending" and small-sample warnings as expected.
+- Nov 23 to 25: retention settings, legal hold and the purge job. Nothing reaches the one-year floor before late October 2027, and with the default periods nothing is purgeable before late 2028, so this trails without risk; until then nothing is purged and a legal hold is a note plus an audit row. Quo text cleanup stays a documented manual step unless its API supports deletion.
+- When needed: person merge (the first time a returning worker shows up with a new number); historical hire import if you have the data; a hires-only handoff to Typhoon (see open questions).
+
+**Your acceptance:** the snow opening's funnel and time to hire match a hand count of five applications; a test hire shows pending, then retained, and a Temporary one is excluded with its count shown; predictiveness shows count tables with small-sample warnings; one person's record exports.
+
+## Things you do outside Tidepool
+
+- Indeed: remove any screener about background checks (Minnesota ban-the-box); add the pay range (by Oct 22). Export the full candidate list when each posting closes and keep it a year.
+- Keep paper sign-up sheets a year.
+- Background check vendor: confirm it collects a standalone FCRA disclosure and authorization before ordering, sends pre-adverse and adverse notices, and offers Minnesota's copy checkbox (before the first offer).
+- If you drug test: a written policy under Minnesota's drug testing law (DATWA) before any test, and which roles may be tested for cannabis.
+- Quo: restrict the hiring number to hiring staff; set who it rings.
 
 ## What I need from you
 
-Unknown inputs (I will not guess these):
+- **Tue Oct 13:** approve the rewritten plan and data model; DNS CNAME for tidepool.kahunawindowcleaning.com the same way typhoon. is set up; GitHub access to the Typhoon and REEF repos, or a short note on how they do sign-in, Resend and Quo; add Tidepool's redirect URL to the existing Google OAuth client, or say there is none; which sending domain Resend already has verified for REEF or Typhoon; your own email for the first Admin account. The rest of the staff emails with roles (Admin or Hiring Manager; Viewer is built only when someone needs it) before the Oct 20 dry run.
+- **Wed Oct 14:** approve consent text, privacy policy, SMS terms, the AI disclosure sentence, snow pay and benefits text, help contact; name who reads hiring@ and answers 763-292-2259; does Typhoon text the snow technicians?
+- **Thu Oct 15:** create the Quo API key when asked (morning), paste it into Railway, turn on auto-recharge; lend one staff phone for the first text test that evening.
+- **Fri Oct 16:** snow season dates, headcount, whether snow uses one-on-ones, whether snow runs group sessions this fall, which checks apply and the vendor; recruit 3 to 5 dry-run testers for Tue Oct 20; roughly how the 40 to 50 hires split between snow and window.
+- **Mon Oct 19:** 30-minute production walkthrough. **Tue Oct 20:** dry run. **Wed Oct 21:** acceptance checklist. **Thu Oct 22:** Indeed cleanup and the QR test sheet. **Fri Oct 23:** paste the Indeed link; available all day.
+- **By Thu Oct 29:** Anthropic Console account and key with a monthly cap, pasted into Railway.
+- **By Fri Nov 6:** enter crews in Settings > Picklists.
+- **Before the window opening opens:** window rubric (criteria, strong, acceptable and weak examples, weights), final window question wording and pay, season dates, approval of the AI disclosure.
 
-| # | What | By | Notes |
-|---|---|---|---|
-| 1 | Kahuna's web domain for the hiring subdomain (for example `jobs.<domain>`), and who controls its DNS | Wed Oct 14 | Records go in Thu Oct 15: the app CNAME and Railway verification, Resend's DKIM, SPF and return-path, DMARC. QR codes, launch email and sign-in all depend on them. Hard decision Fri Oct 16: if they aren't verified, you buy a dedicated hiring domain that day at a registrar with built-in DNS (no email reputation yet, so the dry run checks inbox placement, and your main site links the privacy policy). Codes are never printed on Railway's default domain |
-| 2 | Google Workspace domain(s) staff sign in with, and any personal Gmail exceptions (default none) | Wed Oct 14 | Sets the sign-in check and whether the OAuth consent screen is Internal or External |
-| 3 | Staff user list: name, Google email, role (Admin, Hiring Manager, Viewer) | Thu Oct 22 | Everyone signs in before the Oct 28 dry run. Viewer is built for launch only if someone on the list needs it |
-
-Accounts and filings:
-
-| # | What | By | Lead time |
-|---|---|---|---|
-| 4 | Quo: in Settings, Trust center, confirm the carrier registration is an approved **Business (EIN)** registration in Kahuna's legal name, not Sole Proprietor, and note the message types it lists | Wed Oct 14 | Minutes |
-| 5 | Email Quo support (keep it in writing): "We will text job applicants who opted in on our web form: their application link, one reminder, interview scheduling and reminders, status updates and declines, through the API from a new number in our workspace. Does our current registration cover this, or does it need an update? Does our texting keep working during any re-review?" | Wed Oct 14 | Answer in days; an update takes 1 day to about 3 weeks and needs the opt-in page live (Oct 16) |
-| 6 | Quo: add a local 763 or 612 number for hiring ($5 a month) and give only hiring staff access; Owner or Admin creates an API key and sends it to me privately (never in chat or email); turn on auto-recharge for the messaging balance | Wed Oct 14 | Minutes |
-| 7 | If Quo needs a registration update: submit it with the wording I draft (texts go only to people who applied and opted in, no pay amounts or "earn" wording, sample messages, the opt-in page and privacy policy URLs). You make the attestations; I can't | As soon as Quo answers, after Oct 16 | 1 day to about 3 weeks |
-| 8 | Google Cloud OAuth client by a Workspace super admin, with production and staging redirect URLs | Wed Oct 14 | 30 minutes |
-| 9 | Business-owned Railway workspace (Pro, billing), GitHub access for Railway and the builder; Resend paid plan and API key; Sentry account; Cloudflare account with a Turnstile site for the hiring host | Wed Oct 14 | Same day |
-| 10 | Off-site backup bucket (S3, R2 or B2) with a write-only key; you keep the private key that decrypts the dumps offline | Fri Oct 23 | An hour |
-| 11 | hiring@ Google Group: anyone outside the organization can post, no moderation, every member gets each message by email; tested with an outside Gmail address and an app alert. Name the person who reads it | Fri Oct 16 | That person records any "stop texting me" (by text, call, email or in person) with the one-click opt-out the same day |
-
-Decisions and content:
-
-| # | What | By | Notes |
-|---|---|---|---|
-| 12 | Approve PLAN.md and DATA_MODEL.md; same-day answers through Oct 30 | Thu Oct 15 | One 3-day wait uses the whole buffer |
-| 13 | Approve consent text, privacy policy, SMS terms and the three launch emails (resume link, reminder, submit confirmation); drafts arrive Thu Oct 15. Consent scope: default is this application only. If you want texts about future openings, say so by Wed Oct 14 so the Quo support email covers it (or send Quo a follow-up the day you decide) | Fri Oct 16 | Counsel either finishes by this date, or you approve v1 now and counsel reviews before Phase 2 (a new text version later is cheap) |
-| 14 | Snow: sign off on the question wording in DATA_MODEL.md, pay rate or range, benefits summary, logo, HELP phone and email | Fri Oct 16 | Pay appears on the landing page |
-| 15 | Snow season start and expected end, target headcount; whether snow uses one-on-ones; which checks apply; date of the first expected snow offer; whether snow flyers get printed | Fri Oct 23 | Sets the snow pipeline, retention windows and the November order |
-| 16 | Background check vendor and checks per role (criminal, driving record, drug screen). Confirm the vendor collects a standalone FCRA disclosure and authorization before ordering, sends pre-adverse and adverse notices, and offers Minnesota's copy checkbox. If you drug test: a written policy under Minnesota's drug testing law (DATWA) before any test, and which roles may be tested for cannabis | Fri Oct 23 | Vendor setup can take days |
-| 17 | Indeed: remove any screener about background checks, add pay range; export the full candidate list when each posting closes and keep it a year; keep paper sign-up sheets a year. On Oct 29, paste the snow Indeed-message link into the message template and any auto-reply | This week, and Oct 29 | Minutes per posting |
-| 18 | Dry run of the snow path, 5 to 10 people on iPhones and Androids: get an Indeed message with the link, open it in the Indeed app, start, leave, resume from the email, submit. Check where the emails land (Gmail, Outlook, Yahoo, iCloud) | Wed Oct 28 | Book the people now. Venue QR scanning waits until a group session is scheduled |
-| 19 | Be available on go-live day | Fri Oct 30 | |
-| 20 | Crew list for the hire form | Fri Nov 6 | |
-| 21 | Date D (first 2027 window group interview); past hire records if you want them imported | Early Dec | D sets the Phase 2 and 3 deadlines |
-| 22 | Window rubric: criteria, strong / acceptable / weak examples, weights | D minus 6 weeks | Your work, not the builder's |
-| 23 | Window: final question wording (including any physical requirement figures from the written job description), pay range, season dates | D minus 6 weeks | |
-| 24 | Anthropic Console account with billing and a monthly cap; federal contractor or Minnesota workforce certificate status; counsel review of the AI disclosure | Early Jan | |
-
-## Open questions that can wait
+## Open questions with defaults
 
 | Question | Default until answered | Needed by |
 |---|---|---|
-| Should the ATS send group interview invites (people exist before they scan)? | No. Indeed sends invites; records start at the QR scan | Dec 1 |
-| Will snow run group interview sessions this fall? | No. Snow applicants arrive through the Indeed message link; session QR ships in Phase 2 | Oct 23 |
-| Import snow candidates already in progress? | No. They finish the old way | Oct 23 |
-| Is a returning seasonal worker a new hire each season? | Yes. One hire row per season, linked to the same person | Nov 6 |
-| What makes a good on-call snow hire? | Season-end rating (Reliable, Mixed, Unreliable, Never worked) plus storms worked; predictiveness compares Reliable with Mixed or Unreliable and shows Never worked separately | Mar 2027 |
-| Can the sign-in sheet capture mobile numbers? | Paper sheet with a phone column, matched by phone | Jan 2027 |
-| Where does the interview scorecard live? | The ATS, with a Notion link | Jan 2027 |
-| Languages besides English? | English only; all applicant text stored by language | Jan 2027 |
-| Who reads replies to the hiring number? | The person named in #11; every text is logged in the ATS and emailed to hiring@ | Oct 16 |
-| Can staff reply to applicant texts by hand in Quo? | Yes, to answer a question an applicant texted, typed by a person (never AI), as they would on a phone call. Invites, declines and status news always go out as ATS templates so they're logged. Whether hand replies typed in Quo also appear in the ATS gets checked in the live tests | Oct 30 |
-| Import past seasons' hire outcomes? | Yes, hire outcomes only, flagged historical, in Phase 3 | Early Dec |
+| Should hired snow techs flow into Typhoon (crew list), and window techs into REEF? | Not built. If yes, a hires-only handoff (name, mobile, email, role, crew, start date, texts-blocked flag) lands after Phase 3; applicant answers never leave Tidepool | Nov 20 |
+| Will snow run group interview sessions this fall? | No; session screens ship in Phase 2 | Oct 16 |
+| Import snow candidates already in progress? | No; they finish the old way | Oct 16 |
+| Should the ATS send group interview invites? | No; Indeed sends invites, records start at the QR scan | Dec 1 |
+| Where does the interview scorecard live? | Tidepool, with a Notion link | Jan 2027 |
+| Languages besides English? | English only; a second language would be a later migration | Jan 2027 |
 | Collect voluntary self-identification? | No | Jan 2027 |
-| Midwest Access roles in the ATS? | Not now. Needs an Employer row and likely its own carrier registration if texts name Midwest Access | 6 weeks before the first Midwest Access hire |
-| Retention periods | Defaults in DATA_MODEL.md: 2 years for non-hired contact details, 3 years after a hire ends, 4 years for consent and messages, 5 years for check status, 35 days for backups and off-site dumps | Sep 2027 |
-| Two applicants sharing one phone? | Staff mark the number as shared on the profile; the second person then matches by email | When it first happens |
-| Quiet hours for texts | 9am to 8pm Central for every text the applicant didn't just request | Any time |
+| Midwest Access roles in Tidepool? | Not now; needs an Employer row and likely its own carrier registration | 6 weeks before the first Midwest Access hire |
+| Retention periods | Defaults in DATA_MODEL.md: 2 years non-hired contact details, 3 years after a hire ends, 4 years consent and messages, 5 years check status, 35 days backups | Nov 25 |
+| Two applicants sharing one phone? | Staff mark the number as shared; the second person matches by email | When it first happens |
+| Quiet hours for texts | 9am to 8pm Central for every text the applicant did not just request | Any time |
