@@ -110,13 +110,15 @@ describe("draft creation", () => {
 
   it("loads the editor state for a role with its history and application counts", async () => {
     await withRollback(db, async (tx) => {
+      // Other test files leave applications pinned to v1, so count from a baseline.
+      const baseline = (await loadRoleForms(tx, snow.roleId))!.published!.applicationCount;
       const personId = await createPerson(tx);
       await createApplication(tx, snow, personId);
       const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: actor() });
       const forms = await loadRoleForms(tx, snow.roleId);
       expect(forms!.role.key).toBe("snow_removal_tech");
       expect(forms!.published!.id).toBe(snow.formVersionId);
-      expect(forms!.published!.applicationCount).toBe(1);
+      expect(forms!.published!.applicationCount).toBe(baseline + 1);
       expect(forms!.draft!.id).toBe(draft.id);
       expect(forms!.history.map((h) => [h.version, h.status])).toEqual([
         [2, "draft"],
@@ -558,6 +560,7 @@ describe("publish", () => {
 
   it("publishes in one transaction: stamps versions, retires the old form, leaves pinned applications alone", async () => {
     await withRollback(db, async (tx) => {
+      const baseline = (await loadRoleForms(tx, snow.roleId))!.published!.applicationCount;
       const personId = await createPerson(tx);
       const { applicationId } = await createApplication(tx, snow, personId);
 
@@ -623,7 +626,7 @@ describe("publish", () => {
       expect(forms!.draft).toBeNull();
       expect(forms!.history.map((h) => [h.version, h.status, h.applicationCount])).toEqual([
         [2, "published", 0],
-        [1, "retired", 1],
+        [1, "retired", baseline + 1],
       ]);
 
       const audits = await tx.select().from(auditLog).where(and(eq(auditLog.entityId, draft.id), eq(auditLog.action, "config.publish")));
