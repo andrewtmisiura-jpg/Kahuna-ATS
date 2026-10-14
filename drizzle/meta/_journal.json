@@ -1,1 +1,20 @@
-{"version":"7","dialect":"postgresql","entries":[]}
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792007162384,
+      "tag": "0000_phase1_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792007283438,
+      "tag": "0001_triggers_and_partial_uniques",
+      "breakpoints": true
+    }
+  ]
+}

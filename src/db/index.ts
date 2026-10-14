@@ -20,5 +20,6 @@ if (!isProduction()) {
 
 export const db = drizzle({ client: sql, schema, casing: "snake_case" });
 
-// Services take this handle as their first argument so tests can pass a transaction.
-export type Db = typeof db;
+// Services take this handle as their first argument. It is either the pool or a
+// transaction handle, so a caller can run several service calls in one transaction.
+export type Db = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
