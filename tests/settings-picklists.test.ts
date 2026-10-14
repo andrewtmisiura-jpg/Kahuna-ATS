@@ -79,13 +79,15 @@ describe("Settings > Picklists", () => {
   it("locks key, list, scope and the FCRA flag once a row references the option, but keeps the label editable", async () => {
     await withRollback(db, async (tx) => {
       const actor = staffActor(adminId);
-      const reasonId = await loadOption(tx, "disqualify_reason", "availability_conflict");
+      // A fresh option: other test files close applications with the seeded reasons and keep the rows.
+      const reason = await addPicklistOption(tx, { actor, listKey: "disqualify_reason", key: "no_ladder_experience", label: "No ladder experience" });
+      const reasonId = reason.id;
       expect(await isOptionReferenced(tx, reasonId)).toBe(false);
 
       // Nothing references it yet: the key may still change (and change back).
-      const renamed = await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "availability_conflict_v2" } });
-      expect(renamed.key).toBe("availability_conflict_v2");
-      await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "availability_conflict" } });
+      const renamed = await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "no_ladder_experience_v2" } });
+      expect(renamed.key).toBe("no_ladder_experience_v2");
+      await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "no_ladder_experience" } });
 
       // A closed event names the reason, which locks it.
       const personId = await createPerson(tx);
@@ -105,19 +107,19 @@ describe("Settings > Picklists", () => {
       });
       expect(await isOptionReferenced(tx, reasonId)).toBe(true);
 
-      await expectConfigError(updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "availability" } }), "picklist_locked");
+      await expectConfigError(updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "ladder" } }), "picklist_locked");
       await expectConfigError(updatePicklistOption(tx, { actor, id: reasonId, patch: { fcraAdverse: true } }), "picklist_locked");
       await expectConfigError(updatePicklistOption(tx, { actor, id: reasonId, patch: { listKey: "withdraw_reason" } }), "picklist_locked");
       await expectConfigError(updatePicklistOption(tx, { actor, id: reasonId, patch: { roleId: snow.roleId } }), "picklist_locked");
 
-      const relabeled = await updatePicklistOption(tx, { actor, id: reasonId, patch: { label: "Availability does not fit", requiresNote: true } });
-      expect(relabeled.label).toBe("Availability does not fit");
+      const relabeled = await updatePicklistOption(tx, { actor, id: reasonId, patch: { label: "No ladder experience yet", requiresNote: true } });
+      expect(relabeled.label).toBe("No ladder experience yet");
       expect(relabeled.requiresNote).toBe(true);
-      expect(relabeled.key).toBe("availability_conflict");
+      expect(relabeled.key).toBe("no_ladder_experience");
 
       // The same patch with the locked values unchanged is fine.
-      const same = await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "availability_conflict", fcraAdverse: false, label: "Availability" } });
-      expect(same.label).toBe("Availability");
+      const same = await updatePicklistOption(tx, { actor, id: reasonId, patch: { key: "no_ladder_experience", fcraAdverse: false, label: "Ladders" } });
+      expect(same.label).toBe("Ladders");
     });
   });
 
