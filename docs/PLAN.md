@@ -30,7 +30,7 @@ They get an Indeed message with a tidepool.kahunawindowcleaning.com link, or sca
 
 ## What staff experience
 
-Sign in with Google on a phone. The snow list opens with counts at the top (started, in progress, submitted) and a strip of things needing attention (unhandled texts, contact conflicts). Tap an applicant to see answers, source, stage history, notes, the text thread, and a "Returning" strip if they applied or worked here before (red if they were marked not eligible for rehire). Move is one small dialog (stage, time, optional note; backdate if you are catching up). Close is another (outcome, reason, note). Hold, Reopen and Contacted are one-tap buttons. Moving to Conditional offer records the offer date from the move's time (backdate it if needed) and asks for the planned start date; moving to Background check asks the check type; both get a panel on the profile. Moving to Hired opens the hire form: crew, start date, Temporary yes or no, and later the leave date, reason and ratings. Replies to texts land in the Quo app and on the profile and are emailed to hiring@; "they asked me to stop" is one click. The kanban board, question editor, entry codes and Settings are desktop screens for Admins. Admins export CSV. Three one-page guides live at /help inside the app.
+Sign in with Google on a phone. The snow list opens with counts at the top (started, in progress, submitted) and a strip of things needing attention (unhandled texts, contact conflicts). Tap an applicant to see answers, source, stage history, notes, the text thread, and a "Returning" strip if they applied or worked here before (red if they were marked not eligible for rehire). Move is one small dialog (stage, time, optional note; backdate if you are catching up). Close is another (outcome, reason, note). Hold, Reopen, Contacted and Hire now are one-tap buttons. Moving to Conditional offer records the offer date from the move's time (backdate it if needed) and asks for the planned start date; moving to Background check asks the check type; both get a panel on the profile. Moving to Hired opens the hire form: crew, start date, Temporary yes or no, and later the leave date, reason and ratings. Replies to texts land in the Quo app and on the profile and are emailed to hiring@; "they asked me to stop" is one click. The kanban board, question editor, entry codes and Settings are desktop screens for Admins. Admins export CSV. Three one-page guides live at /help inside the app.
 
 ## Decisions
 
@@ -42,6 +42,7 @@ Each line ends with where the detail lives in DATA_MODEL.md.
 - Person is separate from Application; one application per person per opening; matching by mobile, then email, never names. The public form never changes contact details on file. (person)
 - Role is the permanent job; Opening is the cohort. Stages map to fixed milestones; closed outcomes (Disqualified, Withdrew, Not selected) carry a required reason; Hold is a flag. (pipeline_stage, application)
 - Stage history is an append-only log written by one function, with a backdatable "happened" time. (application_event)
+- Any stage can move straight to Hired, or to any later stage, in one step; a "Hire now" button on the profile does it from the group interview the same day. Skipped steps count as passed in reports. The only hard blocks are the FCRA ones: no Background check stage without a conditional offer, and no background-based disqualification before the waiting period. (application_event, send rules)
 - Questions are versioned; publishing creates a locked form version; each application pins the version it started on and keeps it to the end. (form_version)
 - "How did you hear about us?" is a fixed landing field; the entry code is captured for everyone. (application)
 - Links carry a hashed, reusable token that expires 30 days after last use, never stored or logged readable. (resume_token)
@@ -123,7 +124,7 @@ Nov 1 is a Sunday, so Fri Oct 30 is the last date.
 
 **Platform:** Railway web, cron and Postgres; migrations on pre-deploy; db:seed (one script, run once against an empty database and locally: employer, your Admin user, both roles, both pipelines, picklists, legal text v1, templates v1, snow form v1 published and window form v1 as a draft, both openings (snow open with the pay text you approve Oct 14, window a draft), the two launch entry codes; re-running is a no-op by key); nightly dump with one tested restore; CI; alerts, digest and /health; read-only database user.
 
-If you confirm snow will run group interview sessions this fall, the session record and per-session QR move from Phase 2 into this list.
+Snow runs group interviews this fall, so group sessions are in this release: the session record (date, location, role, invited count), a per-session QR, and the session shown on each applicant and as a list filter. Attendee entry from the sign-up sheet, stars and the door check-in page follow in Phase 2.
 
 **Slip rules.** If the Oct 20 dry run fails on something fundamental, go-live moves to Tue Oct 27 with everything. If Oct 27 fails, Fri Oct 30 is the last date, with everything. If even that is at risk, I will ask you at the Oct 27 go/no-go whether kanban (the list makes the same moves), the question editor (snow form v1 is seeded), the wide CSV export or bulk move may trail by a week; nothing trails without your say-so. Nov 1 is the daylight saving change; the Central-time helper and its test cover it, and the builder checks the first reminders sent on Nov 2.
 
@@ -171,7 +172,7 @@ Assumes the builder works every day including both weekends, you answer within h
 
 Built on a branch with its own Railway environment while the first live week runs on fixes only.
 
-- Oct 26 to 28: group sessions (records, per-session QR, attendee entry with a tablet door check-in page as the default and paper as fallback, exact-phone matching, staff-confirmed name matches, stars with a reason picklist and a concern mark); interview record with grades and the ladder-test assessment; template editor with the Phase 2 templates (one-on-one invite with booking link, one-on-one reminder, decline, status update); stage editor and "New role from template" in Settings. From this point you add a role yourself: Settings, New role, edit the questions and stages, open an opening with pay and dates.
+- Oct 26 to 28: group sessions, continued (attendee entry from the paper sheet or a tablet door check-in page, exact-phone matching, staff-confirmed name matches, stars with a reason picklist and a concern mark); interview record with grades and the ladder-test assessment; template editor with the Phase 2 templates (one-on-one invite with booking link, one-on-one reminder, decline, status update); stage editor and "New role from template" in Settings. From this point you add a role yourself: Settings, New role, edit the questions and stages, open an opening with pay and dates.
 - Oct 29 to Nov 3: rubric editor with "Try it" (optional sample answers scored on demand; publishing needs a written reason, not a passing run); scoring job (1 to 100 computed score, per-criterion 1 to 5 grades, hidden or visible mode, stored input snapshot, re-score); review decisions written automatically; AI disclosure editable as a legal text version.
 - Nov 4 to 6: tests against sample window answers, fixes, live Fri Nov 6.
 
@@ -205,7 +206,7 @@ The window rubric, the window question wording and pay, and your approval of the
 - **Tue Oct 13:** approve the rewritten plan and data model; DNS CNAME for tidepool.kahunawindowcleaning.com the same way typhoon. is set up; GitHub access to the Typhoon and REEF repos, or a short note on how they do sign-in, Resend and Quo; add Tidepool's redirect URL to the existing Google OAuth client, or say there is none; which sending domain Resend already has verified for REEF or Typhoon; your own email for the first Admin account. The rest of the staff emails with roles (Admin or Hiring Manager; Viewer is built only when someone needs it) before the Oct 20 dry run.
 - **Wed Oct 14:** approve consent text, privacy policy, SMS terms, the AI disclosure sentence, snow pay and benefits text, help contact; name who reads hiring@ and answers 763-292-2259; does Typhoon text the snow technicians?
 - **Thu Oct 15:** create the Quo API key when asked (morning), paste it into Railway, turn on auto-recharge; lend one staff phone for the first text test that evening.
-- **Fri Oct 16:** snow season dates, headcount, whether snow uses one-on-ones, whether snow runs group sessions this fall, which checks apply and the vendor; recruit 3 to 5 dry-run testers for Tue Oct 20; roughly how the 40 to 50 hires split between snow and window.
+- **Fri Oct 16:** snow season dates, headcount, whether snow uses one-on-ones, which checks apply and the vendor; recruit 3 to 5 dry-run testers for Tue Oct 20; roughly how the 40 to 50 hires split between snow and window.
 - **Mon Oct 19:** 30-minute production walkthrough. **Tue Oct 20:** dry run. **Wed Oct 21:** acceptance checklist. **Thu Oct 22:** Indeed cleanup and the QR test sheet. **Fri Oct 23:** paste the Indeed link; available all day.
 - **By Thu Oct 29:** Anthropic Console account and key with a monthly cap, pasted into Railway.
 - **By Fri Nov 6:** enter crews in Settings > Picklists.
@@ -216,7 +217,6 @@ The window rubric, the window question wording and pay, and your approval of the
 | Question | Default until answered | Needed by |
 |---|---|---|
 | Should hired snow techs flow into Typhoon (crew list), and window techs into REEF? | Not built. If yes, a hires-only handoff (name, mobile, email, role, crew, start date, texts-blocked flag) lands after Phase 3; applicant answers never leave Tidepool | Nov 20 |
-| Will snow run group interview sessions this fall? | No; session screens ship in Phase 2 | Oct 16 |
 | Import snow candidates already in progress? | No; they finish the old way | Oct 16 |
 | Should the ATS send group interview invites? | No; Indeed sends invites, records start at the QR scan | Dec 1 |
 | Where does the interview scorecard live? | Tidepool, with a Notion link | Jan 2027 |

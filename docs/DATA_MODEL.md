@@ -459,7 +459,7 @@ Anonymous daily scan counter. No IP, device or cookie is stored.
 
 PK: `(entry_code_id, day)`.
 
-#### group_session (P1 table; screen ships with the Phase 2 group interview tools, or in Phase 1 if snow runs sessions this fall)
+#### group_session (P1; snow runs sessions this fall, so the session screen and per-session QR ship in Phase 1; attendees and stars in Phase 2)
 
 A group interview session. Created in P1 because entry codes and applications reference it.
 
@@ -1181,7 +1181,7 @@ Window cleaning:
 | 80 | background_check | Background check | background_check | no | yes |
 | 90 | hired | Hired | hired | no | yes |
 
-Snow removal: the same without `one_on_one_scheduled`, and stage 80 is named "Background or driving check". Staff can move straight from Reviewed to Conditional offer; skipped milestones are handled by the reports. If snow skips one-on-ones entirely, the two stages stay seeded and unused and are archived in the Phase 2 stage editor; an unused stage costs nothing. Public labels: Started and Submitted show "Received"; Reviewed "Under review"; the one-on-one stages "Interview"; Conditional offer "Offer"; the check stage "Background check"; Hired "Hired".
+Snow removal: the same without `one_on_one_scheduled`, and stage 80 is named "Background or driving check". Staff can move from any stage straight to Hired or to any later stage (the "Hire now" button on the profile does this from the group interview the same day); skipped milestones are handled by the reports. If snow skips one-on-ones entirely, the two stages stay seeded and unused and are archived in the Phase 2 stage editor; an unused stage costs nothing. Public labels: Started and Submitted show "Received"; Reviewed "Under review"; the one-on-one stages "Interview"; Conditional offer "Offer"; the check stage "Background check"; Hired "Hired".
 
 Disqualified, Withdrew and Not selected are closed outcomes, not stages (change from the brief).
 
