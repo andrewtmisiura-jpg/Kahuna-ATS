@@ -164,7 +164,8 @@ export type TransitionInput = BaseInput &
     | { action: "unhold" }
     | { action: "reopen"; toStageId?: string }
     | { action: "contacted" }
-    | { action: "submit" }
+    // metadata carries the submission snapshot (answers as submitted) written by the answers service.
+    | { action: "submit"; metadata?: ApplicationEventMetadata | null }
     | { action: "void"; eventId: string }
     | {
         action: "rescind_hire";
@@ -270,7 +271,7 @@ async function planEvent(
       if (app.submittedAt) throw new TransitionError("already_submitted", "The application was already submitted");
       const beforeSubmitted = milestoneIndex(currentStage.milestone) < milestoneIndex("submitted");
       const toStage = beforeSubmitted ? await systemStage(tx, app.roleId, "submitted") : currentStage;
-      return { kind: "submitted", fromStageId: currentStage.id, toStageId: toStage.id };
+      return { kind: "submitted", fromStageId: currentStage.id, toStageId: toStage.id, metadata: input.metadata ?? null };
     }
     case "void":
       return planVoid(tx, events, input.eventId, now);

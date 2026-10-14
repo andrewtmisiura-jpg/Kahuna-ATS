@@ -15,6 +15,13 @@
       "when": 1792007283438,
       "tag": "0001_triggers_and_partial_uniques",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792011813504,
+      "tag": "0002_applicant_opt_in_page",
+      "breakpoints": true
     }
   ]
 }
