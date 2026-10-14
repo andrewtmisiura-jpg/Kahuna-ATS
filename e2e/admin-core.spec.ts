@@ -32,7 +32,7 @@ test.describe("admin core", () => {
       id: personId,
       firstName,
       lastName,
-      mobileE164: `+1612${stamp}`,
+      mobileE164: `+16125${stamp.slice(-6)}`,
       email: `pw-${stamp}@example.test`,
       emailNormalized: `pw-${stamp}@example.test`,
     });
