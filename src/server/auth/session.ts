@@ -13,8 +13,10 @@ export type SessionUser = {
 };
 
 // Development-only sign-in. When DEV_AUTH_EMAIL is set and NODE_ENV is not
-// production, every request counts as that email signed in as an Admin, so the
-// admin screens work locally without Google credentials or auth tables.
+// production, every request counts as that email signed in, so the admin screens
+// work locally without Google credentials. requireRole maps it to the app_user
+// row for that email (creating an Admin row on first use), so the row's status
+// and role are what count; the admin role here is only the default for display.
 export function devBypassUser(): SessionUser | null {
   if (isProduction()) return null;
   const email = env().DEV_AUTH_EMAIL;
