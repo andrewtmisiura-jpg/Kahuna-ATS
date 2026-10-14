@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# env files: .env.example is the documented template and is committed
+.env*
+!.env.example
+
+# local postgres cluster (pnpm db:local:init)
+/.pgdata
+
+# tests
+/test-results/
+/playwright-report/
+/coverage
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+.pnpm-debug.log*
