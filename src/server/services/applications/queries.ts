@@ -773,7 +773,8 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
     .innerJoin(formVersion, eq(formVersion.id, application.formVersionId))
     .leftJoin(picklistOption, eq(picklistOption.id, application.closedReasonOptionId))
     .leftJoin(entryCode, eq(entryCode.id, application.entryCodeId))
-    .leftJoin(groupSession, eq(groupSession.id, application.attributedSessionId))
+    // A deleted session is not shown or linked; staff can clear or replace it.
+    .leftJoin(groupSession, and(eq(groupSession.id, application.attributedSessionId), isNull(groupSession.deletedAt)))
     .where(and(eq(application.id, applicationId), isNull(application.deletedAt)));
   if (!head) return null;
   const { app, who } = head;

@@ -96,26 +96,26 @@ export type SetSessionInput = {
 
 // Sets or clears the attributed group session, for someone who scanned the role
 // QR at a session instead of the session's own code. The session must belong to
-// the application's opening and must not be canceled. Picking the session the
-// application scanned restores that attribution; any other pick is staff confirmed.
+// the application's opening, and must not be canceled or deleted. Picking the
+// session the application scanned restores that attribution; any other pick is
+// staff confirmed. Saving the session already attributed changes nothing, so its
+// method (scanned, matched by phone) is kept.
 export async function setAttributedSession(db: Db, input: SetSessionInput): Promise<{ changed: boolean }> {
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
     const before = await lockApplication(tx, input.applicationId);
-    if (input.sessionId) {
-      const [session] = await tx.select().from(groupSession).where(eq(groupSession.id, input.sessionId));
+    const sessionId = input.sessionId ?? null;
+    if (sessionId === before.attributedSessionId) return { changed: false };
+    if (sessionId) {
+      const [session] = await tx.select().from(groupSession).where(eq(groupSession.id, sessionId));
       if (!session || session.deletedAt) throw new DetailError("session_not_found", "No such group session");
       if (session.openingId !== before.openingId) {
         throw new DetailError("session_wrong_opening", "That session belongs to another opening");
       }
-      if (session.status === "canceled" && session.id !== before.attributedSessionId) {
-        throw new DetailError("session_canceled", "That session was canceled");
-      }
+      if (session.status === "canceled") throw new DetailError("session_canceled", "That session was canceled");
     }
-    const sessionId = input.sessionId ?? null;
     const attributionMethod: ApplicationRow["attributionMethod"] =
       sessionId === null ? "none" : sessionId === before.scannedSessionId ? "scanned_session" : "staff_confirmed";
-    if (sessionId === before.attributedSessionId && attributionMethod === before.attributionMethod) return { changed: false };
 
     await tx.update(application).set({ attributedSessionId: sessionId, attributionMethod, updatedAt: now }).where(eq(application.id, before.id));
     await writeAudit(tx, {

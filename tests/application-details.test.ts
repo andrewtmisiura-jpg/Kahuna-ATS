@@ -168,6 +168,24 @@ describe("group session", () => {
     expect(await load(applicationId)).toMatchObject({ attributedSessionId: sessionId, attributionMethod: "scanned_session" });
   });
 
+  it("saving the session already attributed keeps its method, and a deleted session drops off the profile", async () => {
+    const applicationId = await newApplication();
+    // Matched by phone, as the Phase 2 sign-in sheet will do.
+    await db.update(application).set({ attributedSessionId: otherSessionId, attributionMethod: "phone_match" }).where(eq(application.id, applicationId));
+    expect(await setAttributedSession(db, { applicationId, userId: adminId, sessionId: otherSessionId })).toEqual({ changed: false });
+    expect((await load(applicationId)).attributionMethod).toBe("phone_match");
+    expect(await lastAudit(applicationId, "application.session_attribution")).toBeNull();
+
+    const gone = await newSession(snow.openingId, { locationName: `Gone ${TAG}` });
+    await setAttributedSession(db, { applicationId, userId: adminId, sessionId: gone });
+    await db.update(groupSession).set({ deletedAt: new Date() }).where(eq(groupSession.id, gone));
+    const profile = (await loadProfile(db, applicationId, "admin"))!;
+    expect(profile.application.session).toBeNull();
+    expect(profile.sessions.map((s) => s.id)).not.toContain(gone);
+    // Clearing it still works.
+    expect(await setAttributedSession(db, { applicationId, userId: adminId, sessionId: null })).toEqual({ changed: true });
+  });
+
   it("refuses a session of another opening, a canceled one and a deleted one", async () => {
     const applicationId = await newApplication();
     await expect(setAttributedSession(db, { applicationId, userId: adminId, sessionId: windowSessionId })).rejects.toMatchObject({
