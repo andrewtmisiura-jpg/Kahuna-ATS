@@ -21,6 +21,8 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   // Development-only sign-in bypass. Ignored whenever NODE_ENV is production.
   DEV_AUTH_EMAIL: z.email().optional(),
+  // The first Admin account, created by `pnpm db:seed` (which fails without it).
+  ADMIN_EMAIL: z.email().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

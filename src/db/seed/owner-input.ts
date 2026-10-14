@@ -1,0 +1,54 @@
+// Values DATA_MODEL.md marks OWNER INPUT. Each one is either the owner's approved
+// value or a clearly marked DRAFT placeholder. Replace the placeholders here before
+// the production seed runs; after that these fields change through Settings.
+// ADMIN_EMAIL is the one owner input read from the environment instead.
+
+export const DRAFT_MARK = "DRAFT";
+
+function draft(note: string) {
+  return `${DRAFT_MARK}: ${note}`;
+}
+
+export const ownerInput = {
+  employer: {
+    // Exactly as on the IRS EIN letter (the carrier registration must match).
+    legalName: draft("Kahuna Window Cleaning (confirm the legal name on the IRS EIN letter)"),
+    websiteUrl: null as string | null,
+    // On the domain Resend already verifies for REEF or Typhoon.
+    emailFromAddress: null as string | null,
+    // hiring@, any address all hiring staff read.
+    replyToAddress: null as string | null,
+    hiringEmail: null as string | null,
+  },
+  snow: {
+    // Launch date; the opening is open from the seed through go-live.
+    opensOn: "2026-10-23",
+    payText: draft("snow pay rate or range, approved by the owner on Oct 14"),
+    benefitsText: draft("snow benefits text, approved by the owner on Oct 14"),
+    seasonStartOn: null as string | null,
+    seasonEndOn: null as string | null,
+    targetHeadcount: null as number | null,
+  },
+  window: {
+    // Everything stays null until the owner provides it before the window opening opens.
+    payText: null as string | null,
+    benefitsText: null as string | null,
+    opensOn: null as string | null,
+    seasonStartOn: null as string | null,
+    seasonEndOn: null as string | null,
+    targetHeadcount: null as number | null,
+  },
+};
+
+// Every string value still carrying the DRAFT mark, for the seed's warning.
+export function draftValues(): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown, path: string) => {
+    if (typeof value === "string" && value.startsWith(DRAFT_MARK)) found.push(path);
+    else if (value && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) walk(child, `${path}.${key}`);
+    }
+  };
+  walk(ownerInput, "ownerInput");
+  return found;
+}
