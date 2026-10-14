@@ -25,6 +25,9 @@ export default defineConfig({
       // Everything under src reads DATABASE_URL; tests point it at the test database.
       DATABASE_URL: testDatabaseUrl,
       DATABASE_URL_TEST: testDatabaseUrl,
+      // notifyAdmin needs an address; tests pass a sink provider so nothing is sent.
+      ALERT_EMAIL: "alerts@example.test",
+      MESSAGE_PROVIDERS: "sink",
     },
   },
 });

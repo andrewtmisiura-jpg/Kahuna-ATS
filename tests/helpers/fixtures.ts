@@ -45,12 +45,15 @@ export async function loadSnow(db: Db): Promise<SnowFixture> {
   return { roleId: snow.id, openingId: open.id, formVersionId: form.id, startedStageId: started.id };
 }
 
-let counter = 0;
+// Test files share one database within a run, so the block of numbers is random
+// per process and the counter walks through it: +1612 then seven digits whose
+// first is 2 to 8, which the phone_us check accepts.
+let counter = 2_000_000 + Math.floor(Math.random() * 6_900_000);
 
 // A fresh US mobile number for each call, so partial uniques never collide by accident.
 export function nextMobile() {
   counter += 1;
-  return `+1612555${String(counter).padStart(4, "0")}`;
+  return `+1612${String(counter).padStart(7, "0")}`;
 }
 
 export async function createPerson(db: Db, overrides: Partial<typeof person.$inferInsert> = {}) {

@@ -23,6 +23,14 @@ const envSchema = z.object({
   DEV_AUTH_EMAIL: z.email().optional(),
   // The first Admin account, created by `pnpm db:seed` (which fails without it).
   ADMIN_EMAIL: z.email().optional(),
+  // Message providers: "live" uses Quo and Resend, "sink" records sends without
+  // sending. Defaults to live in production and sink everywhere else.
+  MESSAGE_PROVIDERS: z.enum(["live", "sink"]).optional(),
+  QUO_API_KEY: z.string().optional(),
+  QUO_API_BASE_URL: z.string().default("https://api.quo.com"),
+  RESEND_API_KEY: z.string().optional(),
+  // Where notifyAdmin alerts go (the owner's address, not hiring@).
+  ALERT_EMAIL: z.email().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -33,7 +41,9 @@ let cached: Env | undefined;
 // every runtime variable and a missing one fails with a readable message.
 export function env(): Env {
   if (!cached) {
-    const parsed = envSchema.safeParse(process.env);
+    // A blank value (`ALERT_EMAIL=` in .env or an empty Railway variable) means unset.
+    const present = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== ""));
+    const parsed = envSchema.safeParse(present);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new Error(`Invalid environment: ${issues}`);
