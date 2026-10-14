@@ -86,7 +86,9 @@ export async function runCronPass(db: Db, options: PassOptions): Promise<PassRep
 
   const inbox = await step("inbox", () => alertUnhandledInbound(db, { now: startedAt, providers }));
   const digest = await step("digest", () => sendDailyDigest(db, { now: startedAt, providers }));
-  const backup = await step("backup", () => runNightlyBackupIfDue(db, { now: startedAt, env: options.env, upload: options.upload }));
+  const backup = await step("backup", () => runNightlyBackupIfDue(db, { now: startedAt, env: options.env, upload: options.upload, providers }));
+  // A refused backup (pg_dump older than the server) already sent its own alert; it still fails the pass.
+  if (backup.ok && backup.value.kind === "refused") failed.push("backup");
 
   const finishedAt = new Date();
   const heartbeat = await step("heartbeat", async () => {
@@ -107,7 +109,10 @@ export function describePass(report: PassReport): string {
   }
   if (report.inbox.ok) parts.push(`inbox alerted=${report.inbox.value.alerted.length} realerted=${report.inbox.value.realerted.length}`);
   if (report.digest.ok) parts.push(`digest ${report.digest.value.sent ? "sent" : (report.digest.value.reason ?? "skipped")}`);
-  if (report.backup.ok) parts.push(`backup ${report.backup.value.kind === "done" ? report.backup.value.key : report.backup.value.reason}`);
+  if (report.backup.ok) {
+    const b = report.backup.value;
+    parts.push(`backup ${b.kind === "done" ? b.key : b.kind === "refused" ? `refused (${b.reason}: pg_dump ${b.pgDumpMajor}, server ${b.serverMajor})` : b.reason}`);
+  }
   if (report.failed.length > 0) parts.push(`FAILED: ${report.failed.join(", ")}`);
   return parts.join("; ");
 }

@@ -1,20 +1,29 @@
-import { existsSync, readFileSync } from "node:fs";
-import { inArray } from "drizzle-orm";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { inArray, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
-import { cronHeartbeat } from "@/db/schema";
+import { cronHeartbeat, message } from "@/db/schema";
+import { seedPhase1 } from "@/db/seed";
 import {
   backupKey,
+  checkPgDumpVersion,
   claimNightlyBackup,
   dumpDatabase,
   lastBackupAt,
+  parsePgDumpMajor,
+  PG_DUMP_TOO_OLD_ALERT,
+  pgDumpMajorVersion,
   pgDumpPath,
   r2Config,
   runBackup,
   runNightlyBackupIfDue,
+  serverMajorVersion,
   type DumpFile,
 } from "@/server/services/backup";
 import { BACKUP_HEARTBEAT_NAME } from "@/server/services/health";
+import { TEST_ADMIN_EMAIL } from "./helpers/fixtures";
 
 // Tuesday Oct 20, 2026: 2:59am, 3:05am and 4:10am CDT.
 const BEFORE_3AM = new Date("2026-10-20T07:59:00Z");
@@ -23,14 +32,19 @@ const LATER = new Date("2026-10-20T09:10:00Z");
 
 const env = {
   DATABASE_URL: process.env.DATABASE_URL_TEST,
-  PG_BIN: process.env.PG_BIN ?? (existsSync("/usr/lib/postgresql/16/bin/pg_dump") ? "/usr/lib/postgresql/16/bin" : undefined),
+  // A blank PG_BIN (as .env.example ships it) means unset.
+  PG_BIN: process.env.PG_BIN || (existsSync("/usr/lib/postgresql/16/bin/pg_dump") ? "/usr/lib/postgresql/16/bin" : undefined),
 };
 
 async function clearBackupRows() {
   await db.delete(cronHeartbeat).where(inArray(cronHeartbeat.name, [BACKUP_HEARTBEAT_NAME, "backup_attempt"]));
 }
 
-beforeAll(clearBackupRows);
+beforeAll(async () => {
+  // notifyAdmin needs the employer row to queue an alert.
+  await seedPhase1(db, { adminEmail: TEST_ADMIN_EMAIL });
+  await clearBackupRows();
+});
 
 afterAll(async () => {
   await clearBackupRows();
@@ -96,6 +110,64 @@ describe("dump and upload", () => {
 
   it("a missing pg_dump binary fails loudly", async () => {
     await expect(dumpDatabase(env.DATABASE_URL!, { PG_BIN: "/nonexistent/bin" })).rejects.toThrow(/pg_dump failed/);
+  });
+});
+
+describe("the pg_dump version guard", () => {
+  // A stand-in pg_dump that only answers --version, in its own directory for PG_BIN.
+  function fakePgDump(versionLine: string) {
+    const dir = mkdtempSync(join(tmpdir(), "tidepool-fake-pg-"));
+    writeFileSync(join(dir, "pg_dump"), `#!/bin/sh\necho '${versionLine}'\n`, { mode: 0o755 });
+    return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it("reads the major version from pg_dump --version", () => {
+    expect(parsePgDumpMajor("pg_dump (PostgreSQL) 16.4 (Ubuntu 16.4-1.pgdg22.04+1)")).toBe(16);
+    expect(parsePgDumpMajor("pg_dump (PostgreSQL) 18.0")).toBe(18);
+    expect(parsePgDumpMajor("pg_dump (PostgreSQL) 18beta1")).toBe(18);
+    expect(parsePgDumpMajor("pg_dump (PostgreSQL) 9.6.24")).toBe(9);
+    expect(parsePgDumpMajor("command not found")).toBeNull();
+  });
+
+  it("uses PG_BIN when set and plain pg_dump otherwise, and the local one is new enough for the test server", async () => {
+    const fake = fakePgDump("pg_dump (PostgreSQL) 18.1");
+    try {
+      expect(await pgDumpMajorVersion({ PG_BIN: fake.dir })).toBe(18);
+    } finally {
+      fake.cleanup();
+    }
+    const [row] = await sql<{ version: string }[]>`select current_setting('server_version') as version`;
+    expect(await serverMajorVersion(db)).toBe(Number(row!.version.split(".")[0]));
+    expect(await checkPgDumpVersion(db, env)).toMatchObject({ ok: true });
+  });
+
+  it("refuses with its own alert when pg_dump is older than the server, and uploads and records nothing", async () => {
+    await clearBackupRows();
+    const fake = fakePgDump("pg_dump (PostgreSQL) 9.6.24");
+    const uploads: string[] = [];
+    const upload = async (_file: DumpFile, key: string) => {
+      uploads.push(key);
+    };
+    try {
+      const serverMajor = await serverMajorVersion(db);
+      const result = await runBackup(db, { now: AT_3AM, env: { DATABASE_URL: env.DATABASE_URL, PG_BIN: fake.dir }, upload });
+      expect(result).toEqual({ kind: "refused", reason: "pg_dump_too_old", pgDumpMajor: 9, serverMajor });
+    } finally {
+      fake.cleanup();
+    }
+    expect(uploads).toEqual([]);
+    expect(await lastBackupAt(db)).toBeNull();
+    const alerts = await db.select().from(message).where(like(message.dedupeKey, `alert:${PG_DUMP_TOO_OLD_ALERT}:%`));
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.subject).toContain("Backup refused: pg_dump 9 is older than the database");
+    expect(alerts[0]!.body).toContain("Dockerfile.cron");
+  });
+
+  it("a pg_dump that cannot run fails before any dump", async () => {
+    const upload = async () => {};
+    await expect(runBackup(db, { now: AT_3AM, env: { DATABASE_URL: env.DATABASE_URL, PG_BIN: "/nonexistent/bin" }, upload })).rejects.toThrow(
+      /pg_dump --version failed/,
+    );
   });
 });
 

@@ -1,0 +1,14 @@
+# Build context exclusions for Dockerfile.cron (BuildKit reads <Dockerfile>.dockerignore).
+# Railway builds from a clean checkout, so this matters for local builds: installed
+# packages, build output, the local Postgres cluster and secrets never enter the image.
+.git
+.claude
+node_modules
+.next
+.pgdata
+.env
+.env.*
+!.env.example
+test-results
+playwright-report
+coverage
