@@ -26,3 +26,6 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 .pnpm-debug.log*
+
+# Temporary git worktrees used by build agents
+.claude/worktrees/
