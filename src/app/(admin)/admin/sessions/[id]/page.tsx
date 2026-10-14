@@ -117,12 +117,20 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
           <CardDescription>
             <span className="font-medium text-foreground">{session.startedCount}</span> started,{" "}
             <span className="font-medium text-foreground">{session.submittedCount}</span> submitted. Attendee names from the sign-up sheet and
-            stars arrive Nov 6.
+            stars arrive Nov 6. Someone who scanned the role QR at this session can be added from their profile.
           </CardDescription>
+          {session.startedCount > 0 ? (
+            <Link
+              href={`/admin?opening=${session.openingId}&session=${session.id}&status=all`}
+              className="text-sm underline underline-offset-4"
+            >
+              Open them in the applicant list
+            </Link>
+          ) : null}
         </CardHeader>
         <CardContent>
           {session.applicants.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nobody has scanned this session&apos;s code yet.</p>
+            <p className="text-sm text-muted-foreground">Nobody is attributed to this session yet.</p>
           ) : (
             <Table>
               <TableHeader>

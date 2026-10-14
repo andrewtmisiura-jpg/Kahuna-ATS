@@ -12,9 +12,10 @@ import { useAdminAction } from "./use-admin-action";
 // Texts and emails in and out as one thread with status; inbound texts carry
 // "Mark handled" until a person has dealt with them.
 
-export function MessagesThread({ messages, canAct }: { messages: ProfileMessage[]; canAct: boolean }) {
+// `unhandled` is the profile's count from the inbox service, the same rule the
+// list's attention strip and the daily digest use.
+export function MessagesThread({ messages, unhandled, canAct }: { messages: ProfileMessage[]; unhandled: number; canAct: boolean }) {
   const { run, pending, failure } = useAdminAction();
-  const unhandled = messages.filter((m) => m.direction === "inbound" && !m.handledAt).length;
   return (
     <Section title="Messages" action={unhandled > 0 ? <Badge variant="secondary">{unhandled} unhandled</Badge> : null}>
       {messages.length === 0 ? <Empty>No messages yet.</Empty> : null}

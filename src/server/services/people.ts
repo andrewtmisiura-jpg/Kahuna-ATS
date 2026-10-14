@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, landingConflict, message, person, role } from "@/db/schema";
+import { application, landingConflict, person, role } from "@/db/schema";
 import { staffActor } from "./actor";
 import { diffChanges, writeAudit } from "./audit";
 import { isPlausibleEmail, normalizeUsMobile } from "./landing";
@@ -26,7 +26,6 @@ export type PersonErrorCode =
   | "mobile_in_use"
   | "no_mobile"
   | "no_address"
-  | "message_not_found"
   | "already_resolved";
 
 export class PersonError extends Error {
@@ -226,20 +225,6 @@ export async function resolveLandingConflict(
       })
       .where(eq(landingConflict.id, conflict.id));
   });
-}
-
-// Inbound triage: the "Mark handled" button beside a text on the profile.
-export async function markTextHandled(db: Db, input: { messageId: string; userId: string; now?: Date }): Promise<void> {
-  const now = input.now ?? new Date();
-  const rows = await db
-    .update(message)
-    .set({ handledAt: now, handledBy: input.userId, updatedAt: now })
-    .where(and(eq(message.id, input.messageId), eq(message.direction, "inbound"), isNull(message.handledAt)))
-    .returning({ id: message.id });
-  if (rows.length === 0) {
-    const [existing] = await db.select({ id: message.id }).from(message).where(eq(message.id, input.messageId));
-    if (!existing) throw new PersonError("message_not_found", "No such message");
-  }
 }
 
 export type ResendLinkResult = { queued: string[]; sent: string[]; suppressed: string[]; revoked: number };

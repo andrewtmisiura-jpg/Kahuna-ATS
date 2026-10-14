@@ -67,7 +67,7 @@ export default async function ApplicantProfilePage({ params, searchParams }: { p
         ) : null}
         <AnswersSection profile={profile} />
         <NotesSection notes={profile.notes} applicationId={profile.application.id} user={user} />
-        <MessagesThread messages={profile.messages} canAct={staff} />
+        <MessagesThread messages={profile.messages} unhandled={profile.unhandledTexts} canAct={staff} />
         <StageHistory events={profile.events} />
         <div className="grid gap-3 md:grid-cols-2">
           <ContactSection profile={profile} />

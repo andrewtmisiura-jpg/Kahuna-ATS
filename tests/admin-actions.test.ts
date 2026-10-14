@@ -15,9 +15,9 @@ import { LandingError } from "@/server/services/landing";
 import { SuppressionLiftRefused } from "@/server/services/messaging/consent";
 import { createSinkProviders } from "@/server/services/messaging/providers";
 import { SendError } from "@/server/services/messaging/send";
+import { markHandled } from "@/server/services/messaging/inbox";
 import {
   deleteTestApplication,
-  markTextHandled,
   PersonError,
   recordStopRequest,
   resendApplicationLink,
@@ -214,11 +214,13 @@ describe("contact edits and housekeeping", () => {
       providerMessageId: `quo-${messageId}`,
       triggeredByType: "applicant",
     });
-    await markTextHandled(db, { messageId, userId: managerId });
+    // The profile's "Mark handled" action calls the inbox service's markHandled.
+    expect(await markHandled(db, messageId, managerId)).toBe(true);
     const [row] = await db.select().from(message).where(eq(message.id, messageId));
     expect(row!.handledBy).toBe(managerId);
     expect(row!.handledAt).not.toBeNull();
-    await expect(markTextHandled(db, { messageId: uuidv7(), userId: managerId })).rejects.toMatchObject({ code: "message_not_found" });
+    expect(await markHandled(db, messageId, managerId)).toBe(false);
+    expect(await markHandled(db, uuidv7(), managerId)).toBe(false);
   });
 
   it("resends a link by email and text, and revoke kills the live tokens first", async () => {
