@@ -3,18 +3,20 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { application, pipelineStage } from "@/db/schema";
+import { application, pipelineStage, sourceEnum } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import { requireRole } from "@/server/auth/require-role";
 import type { UserRole } from "@/server/auth/roles";
 import type { SessionUser } from "@/server/auth/session";
 import { staffActor } from "@/server/services/actor";
+import { rescindHire, undoLastChange } from "@/server/services/applications/corrections";
+import { setAttributedSession, updateSource } from "@/server/services/applications/details";
 import { addNote, deleteNote, editNote } from "@/server/services/applications/notes";
 import { updateBackgroundCheck, updateHireStint, updateOffer } from "@/server/services/applications/records";
 import { transition, TransitionError, type TransitionInput } from "@/server/services/applications/transition";
+import { markHandled } from "@/server/services/messaging/inbox";
 import {
   deleteTestApplication,
-  markTextHandled,
   recordStopRequest,
   resendApplicationLink,
   resolveLandingConflict,
@@ -252,6 +254,71 @@ export async function reopenApplication(raw: z.input<typeof reopenSchema>): Prom
 }
 
 // ---------------------------------------------------------------------------
+// Corrections: rescind a hire, undo the latest change
+
+const fcraSchema = z.object({ backgroundCheckIds: z.array(uuid).optional(), notReportBased: z.boolean().optional() }).optional();
+
+const rescindSchema = baseSchema.extend({
+  to: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("open"), toStageId: uuid }),
+    z.object({
+      status: z.literal("closed"),
+      outcome: z.enum(["disqualified", "withdrew", "not_selected"]),
+      reasonOptionId: uuid,
+      fcra: fcraSchema,
+    }),
+  ]),
+});
+
+export type RescindInput = z.input<typeof rescindSchema>;
+
+// "Rescind hire" on a Hired application: close it with an outcome and reason, or
+// put it back in a stage. The service asks for a reason or a note.
+export async function rescindApplicationHire(raw: RescindInput): Promise<ActionResult<TransitionOutcome>> {
+  return run(ACTORS, async (user) => {
+    const input = rescindSchema.parse(raw);
+    const result = await rescindHire(db, { ...common(user, input), to: input.to });
+    return outcome(result);
+  });
+}
+
+const undoSchema = z.object({ applicationId: uuid, expectedSeq: seq, eventId: uuid });
+
+// "Undo last change": voids the change the confirmation named. Hiring Managers and Admins only.
+export async function undoApplicationChange(raw: z.input<typeof undoSchema>): Promise<ActionResult<TransitionOutcome>> {
+  return run(ACTORS, async (user) => {
+    const input = undoSchema.parse(raw);
+    const result = await undoLastChange(db, { applicationId: input.applicationId, actor: staffActor(user.id), expectedSeq: input.expectedSeq, eventId: input.eventId });
+    return outcome(result);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Details: source and group session
+
+const sourceSchema = z.object({
+  applicationId: uuid,
+  source: z.enum(sourceEnum.enumValues).nullable(),
+  sourceDetail: optionalText(200),
+});
+
+export async function updateApplicationSource(raw: z.input<typeof sourceSchema>): Promise<ActionResult<{ changed: string[] }>> {
+  return run(ACTORS, async (user) => {
+    const input = sourceSchema.parse(raw);
+    return updateSource(db, { applicationId: input.applicationId, userId: user.id, source: input.source, sourceDetail: input.sourceDetail ?? null });
+  });
+}
+
+const sessionSchema = z.object({ applicationId: uuid, sessionId: uuid.nullable() });
+
+export async function setApplicationSession(raw: z.input<typeof sessionSchema>): Promise<ActionResult<{ changed: boolean }>> {
+  return run(ACTORS, async (user) => {
+    const input = sessionSchema.parse(raw);
+    return setAttributedSession(db, { applicationId: input.applicationId, userId: user.id, sessionId: input.sessionId });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Notes
 
 const noteSchema = z.object({ applicationId: uuid, body: z.string().max(4000), isRestricted: z.boolean() });
@@ -315,11 +382,11 @@ export async function recordTheyAskedToStop(raw: { applicationId: string }): Pro
   });
 }
 
-export async function markInboundTextHandled(raw: { messageId: string }): Promise<ActionResult<null>> {
+// The same markHandled the inbox uses. False when someone already handled it.
+export async function markInboundTextHandled(raw: { messageId: string }): Promise<ActionResult<{ handled: boolean }>> {
   return run(ACTORS, async (user) => {
     const input = z.object({ messageId: uuid }).parse(raw);
-    await markTextHandled(db, { messageId: input.messageId, userId: user.id });
-    return null;
+    return { handled: await markHandled(db, input.messageId, user.id) };
   });
 }
 

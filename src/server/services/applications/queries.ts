@@ -28,7 +28,9 @@ import {
   type QuestionOption,
 } from "@/db/schema";
 import type { UserRole } from "@/server/auth/roles";
+import { countUnhandledInbound, unhandledInboundCountSql } from "../messaging/inbox";
 import { addDays, centralInstant } from "../time";
+import { stageBeforeHire, undoPreview, type UndoPreview } from "./corrections";
 import { isOpenCheck } from "./transition";
 
 // Read side of the staff review screens (PLAN.md, "What staff experience"):
@@ -250,12 +252,10 @@ export async function listCounts(db: Db, filters: ListFilters, now: Date = new D
 export type AttentionCounts = { unhandledTexts: number; openConflicts: number; notRehireEligible: number };
 
 export async function attentionCounts(db: Db, openingId: string): Promise<AttentionCounts> {
-  const [[texts], [conflicts], [returning]] = await Promise.all([
-    // Inbound texts wait for a person wherever they came from, so the badge counts them all.
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(message)
-      .where(and(eq(message.direction, "inbound"), isNull(message.handledAt))),
+  const [texts, [conflicts], [returning]] = await Promise.all([
+    // Inbound texts wait for a person wherever they came from, so the badge counts
+    // them all, with the inbox's own count (the same number the digest reports).
+    countUnhandledInbound(db),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(landingConflict)
@@ -265,7 +265,7 @@ export async function attentionCounts(db: Db, openingId: string): Promise<Attent
       .from(application)
       .where(and(eq(application.openingId, openingId), isNull(application.deletedAt), eq(application.status, "open"), notRehireEligibleSql())),
   ]);
-  return { unhandledTexts: texts?.count ?? 0, openConflicts: conflicts?.count ?? 0, notRehireEligible: returning?.count ?? 0 };
+  return { unhandledTexts: texts, openConflicts: conflicts?.count ?? 0, notRehireEligible: returning?.count ?? 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +415,8 @@ export async function listApplications(db: Db, filters: ListFilters, role: UserR
         otherApplications: sql<boolean>`exists (select 1 from application a2 where a2.person_id = ${application.personId} and a2.id <> ${application.id} and a2.deleted_at is null)`,
         priorStints: sql<boolean>`exists (select 1 from hire_stint hs where hs.person_id = ${application.personId} and hs.voided_at is null and (hs.application_id is null or hs.application_id <> ${application.id}))`,
         notRehireEligible: notRehireEligibleSql(),
-        unhandledTexts: sql<number>`(select count(*)::int from message m where m.application_id = ${application.id} and m.direction = 'inbound' and m.handled_at is null)`,
+        // The texts the profile shows, counted with the inbox's rule.
+        unhandledTexts: unhandledInboundCountSql(application.id, application.personId),
         textsBlocked: sql<boolean>`exists (select 1 from suppression s where s.channel = 'sms' and s.lifted_at is null and s.address = ${person.mobileE164})`,
       })
       .from(application)
@@ -647,6 +648,15 @@ export type ReturningStint = {
 
 export type PicklistItem = { id: string; key: string; label: string; requiresNote: boolean; fcraAdverse: boolean; defaultSeparation: "voluntary" | "involuntary" | null };
 
+// A group session of the application's opening, for the profile's session picker.
+export type SessionChoice = {
+  id: string;
+  label: string;
+  startsAt: Date;
+  locationName: string;
+  status: "scheduled" | "held" | "canceled";
+};
+
 export type ProfileConflict = {
   id: string;
   typedName: string;
@@ -685,6 +695,10 @@ export type Profile = {
     entryCodeLabel: string | null;
     entryChannel: typeof application.$inferSelect.entryChannel;
     sessionLabel: string | null;
+    // The attributed group session, linked from the profile.
+    session: { id: string; startsAt: Date; locationName: string; status: "scheduled" | "held" | "canceled" } | null;
+    scannedSessionId: string | null;
+    attributionMethod: typeof application.$inferSelect.attributionMethod;
     indeedAppliedOn: string | null;
     formVersion: number;
     excludeFromAnalysis: boolean;
@@ -713,6 +727,14 @@ export type Profile = {
   stint: ProfileStint | null;
   voidedStints: ProfileStint[];
   stages: StageOption[];
+  // Unhandled inbound texts among the messages shown (the inbox's rule).
+  unhandledTexts: number;
+  // The change "Undo last change" would void, named in its confirmation.
+  undo: UndoPreview | null;
+  // Where "Rescind hire" puts the application back by default; null unless hired.
+  rescindStageId: string | null;
+  // The opening's group sessions, for setting the attributed session. Empty for a Viewer.
+  sessions: SessionChoice[];
   picklists: {
     disqualify: PicklistItem[];
     withdraw: PicklistItem[];
@@ -736,8 +758,10 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
       closedReasonLabel: picklistOption.label,
       entryCode: entryCode.code,
       entryCodeLabel: entryCode.label,
+      sessionId: groupSession.id,
       sessionStartsAt: groupSession.startsAt,
       sessionLocation: groupSession.locationName,
+      sessionStatus: groupSession.status,
       formVersionNumber: formVersion.version,
       sections: formVersion.sections,
     })
@@ -749,13 +773,14 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
     .innerJoin(formVersion, eq(formVersion.id, application.formVersionId))
     .leftJoin(picklistOption, eq(picklistOption.id, application.closedReasonOptionId))
     .leftJoin(entryCode, eq(entryCode.id, application.entryCodeId))
-    .leftJoin(groupSession, eq(groupSession.id, application.attributedSessionId))
+    // A deleted session is not shown or linked; staff can clear or replace it.
+    .leftJoin(groupSession, and(eq(groupSession.id, application.attributedSessionId), isNull(groupSession.deletedAt)))
     .where(and(eq(application.id, applicationId), isNull(application.deletedAt)));
   if (!head) return null;
   const { app, who } = head;
   const staff = viewer !== "viewer";
 
-  const [answers, events, notes, messages, consents, offers, checks, stints, returningApps, returningStints, texting, conflicts, stages, picklists] =
+  const [answers, eventLog, notes, messages, consents, offers, checks, stints, returningApps, returningStints, texting, conflicts, stages, picklists, unhandledTexts, sessions] =
     await Promise.all([
       loadAnswers(db, app.id, app.formVersionId),
       loadEvents(db, app.id),
@@ -771,6 +796,8 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
       staff ? loadConflicts(db, who.id) : Promise.resolve([]),
       listStages(db, app.roleId),
       loadPicklists(db, head.employerId, app.roleId),
+      countUnhandledInbound(db, { applicationId: app.id, personId: who.id }),
+      staff ? loadSessionChoices(db, app.openingId) : Promise.resolve([]),
     ]);
 
   return {
@@ -804,6 +831,12 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
       entryChannel: app.entryChannel,
       sessionLabel:
         head.sessionStartsAt && head.sessionLocation ? sessionLabel({ startsAt: head.sessionStartsAt, locationName: head.sessionLocation }) : null,
+      session:
+        head.sessionId && head.sessionStartsAt && head.sessionLocation && head.sessionStatus
+          ? { id: head.sessionId, startsAt: head.sessionStartsAt, locationName: head.sessionLocation, status: head.sessionStatus }
+          : null,
+      scannedSessionId: app.scannedSessionId,
+      attributionMethod: app.attributionMethod,
       indeedAppliedOn: app.indeedAppliedOn,
       formVersion: head.formVersionNumber,
       excludeFromAnalysis: app.excludeFromAnalysis,
@@ -826,7 +859,7 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
     },
     sections: head.sections.map((s) => ({ key: s.key, title: s.title })),
     answers,
-    events,
+    events: eventLog.events,
     notes,
     messages,
     consents,
@@ -835,8 +868,21 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
     stint: stints.find((s) => !s.voidedAt) ?? null,
     voidedStints: stints.filter((s) => Boolean(s.voidedAt)),
     stages,
+    unhandledTexts,
+    undo: eventLog.undo,
+    rescindStageId: app.status === "hired" ? stageBeforeHire(eventLog.rows, stages) : null,
+    sessions,
     picklists,
   };
+}
+
+async function loadSessionChoices(db: Db, openingId: string): Promise<SessionChoice[]> {
+  const rows = await db
+    .select({ id: groupSession.id, startsAt: groupSession.startsAt, locationName: groupSession.locationName, status: groupSession.status })
+    .from(groupSession)
+    .where(and(eq(groupSession.openingId, openingId), isNull(groupSession.deletedAt)))
+    .orderBy(desc(groupSession.startsAt));
+  return rows.map((row) => ({ ...row, label: sessionLabel(row) }));
 }
 
 async function loadAnswers(db: Db, applicationId: string, formVersionId: string): Promise<ProfileAnswer[]> {
@@ -862,7 +908,10 @@ async function loadAnswers(db: Db, applicationId: string, formVersionId: string)
   }));
 }
 
-async function loadEvents(db: Db, applicationId: string): Promise<ProfileEvent[]> {
+async function loadEvents(
+  db: Db,
+  applicationId: string,
+): Promise<{ events: ProfileEvent[]; undo: UndoPreview | null; rows: (typeof applicationEvent.$inferSelect)[] }> {
   const fromStage = sql<string | null>`(select s.name from pipeline_stage s where s.id = ${applicationEvent.fromStageId})`;
   const toStage = sql<string | null>`(select s.name from pipeline_stage s where s.id = ${applicationEvent.toStageId})`;
   const rows = await db
@@ -880,7 +929,16 @@ async function loadEvents(db: Db, applicationId: string): Promise<ProfileEvent[]
     .where(eq(applicationEvent.applicationId, applicationId))
     .orderBy(asc(applicationEvent.seq));
   const voided = new Set(rows.filter((r) => r.event.kind === "event_voided" && r.event.voidsEventId).map((r) => r.event.voidsEventId!));
-  return rows.map((row) => ({
+  const undo = undoPreview(
+    rows.map((row) => ({
+      ...row.event,
+      fromStage: row.fromStage,
+      toStage: row.toStage,
+      reasonLabel: row.reasonLabel,
+      actorName: row.actorName ?? row.actorEmail ?? null,
+    })),
+  );
+  const events = rows.map((row) => ({
     id: row.event.id,
     seq: row.event.seq,
     kind: row.event.kind,
@@ -898,6 +956,7 @@ async function loadEvents(db: Db, applicationId: string): Promise<ProfileEvent[]
     voidsEventId: row.event.voidsEventId,
     notReportBased: Boolean(row.event.metadata?.not_report_based),
   }));
+  return { events, undo, rows: rows.map((row) => row.event) };
 }
 
 // Notes an edit replaced are soft-deleted and linked to their replacement by a

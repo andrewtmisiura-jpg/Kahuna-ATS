@@ -5526,7 +5526,8 @@
         "privacy_policy",
         "sms_terms",
         "landing_notice",
-        "ai_disclosure"
+        "ai_disclosure",
+        "opt_in_page"
       ]
     },
     "public.message_direction": {

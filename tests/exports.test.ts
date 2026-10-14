@@ -177,7 +177,7 @@ describe("wide export", () => {
       const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
 
       // Application A on form v1, carried all the way to Hired.
-      const anaId = await createPerson(tx, { firstName: "Ana", lastName: "Formula", mobileE164: "+16125550123" });
+      const anaId = await createPerson(tx, { firstName: "Ana", lastName: "Formula", mobileE164: "+16125550177" });
       const a = await newSnowApplication(tx, anaId, minutesAgo(600));
       await tx.insert(answer).values([
         { id: uuidv7(), applicationId: a, questionVersionId: await questionVersionId(tx, snow.roleId, "job1_employer"), valueText: "=1+1" },
@@ -270,7 +270,7 @@ describe("wide export", () => {
 
       // Person and state columns.
       expect(rowA["first_name"]).toBe("Ana");
-      expect(rowA["mobile"]).toBe("(612) 555-0123");
+      expect(rowA["mobile"]).toBe("(612) 555-0177");
       expect(rowA["status"]).toBe("hired");
       expect(rowA["stage_key"]).toBe("hired");
       expect(rowA["stage_milestone"]).toBe("hired");

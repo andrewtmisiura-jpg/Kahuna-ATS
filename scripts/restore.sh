@@ -7,7 +7,8 @@
 # The target database must already exist and should be a scratch database, never
 # production: existing objects are dropped (--clean --if-exists) before the restore.
 # PG_BIN points at the Postgres binaries when pg_restore is not on PATH
-# (locally /usr/lib/postgresql/16/bin; Railway's image has it on PATH).
+# (locally /usr/lib/postgresql/16/bin; a production dump comes from pg_dump 18 and needs
+# pg_restore 18, for example /usr/lib/postgresql/18/bin).
 # See scripts/RESTORE.md for the pre-launch restore test.
 set -euo pipefail
 

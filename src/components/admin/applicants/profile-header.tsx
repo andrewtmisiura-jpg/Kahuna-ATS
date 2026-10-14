@@ -114,7 +114,16 @@ export function ProfileHeader({ profile, user, listHref, previousHref, nextHref 
       {staff ? <ConflictBanner conflicts={profile.conflicts} personId={person.id} canAct={staff} /> : null}
 
       {staff ? (
-        <ActionBar application={app} stages={profile.stages} picklists={profile.picklists} checks={profile.checks} stint={profile.stint} role={user.role} />
+        <ActionBar
+          application={app}
+          stages={profile.stages}
+          picklists={profile.picklists}
+          checks={profile.checks}
+          stint={profile.stint}
+          undo={profile.undo}
+          rescindStageId={profile.rescindStageId}
+          role={user.role}
+        />
       ) : (
         <p className="text-xs text-muted-foreground">Viewers can read but not act.</p>
       )}

@@ -1,5 +1,6 @@
 import { ZodError } from "zod";
 import { AccessDeniedError, NotSignedInError } from "@/server/auth/authorize";
+import { DetailError } from "@/server/services/applications/details";
 import { NoteError } from "@/server/services/applications/notes";
 import { RecordError } from "@/server/services/applications/records";
 import { StaleVersionError, TransitionError } from "@/server/services/applications/transition";
@@ -45,6 +46,7 @@ export function toActionFailure(error: unknown): ActionFailure {
   }
   if (
     error instanceof NoteError ||
+    error instanceof DetailError ||
     error instanceof PersonError ||
     error instanceof RecordError ||
     error instanceof LandingError ||

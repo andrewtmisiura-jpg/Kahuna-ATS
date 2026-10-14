@@ -106,6 +106,8 @@ export const legalTextKindEnum = pgEnum("legal_text_kind", [
   "sms_terms",
   "landing_notice",
   "ai_disclosure",
+  // Added by drizzle/0002_applicant_opt_in_page.sql for the public opt-in page.
+  "opt_in_page",
 ]);
 export const picklistKeyEnum = pgEnum("picklist_key", [
   "disqualify_reason",

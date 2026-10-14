@@ -10,10 +10,14 @@ import { ActionNotice } from "./fields";
 import { HireFormDialog } from "./hire-form-dialog";
 import { MoveDialog } from "./move-dialog";
 import { ReopenDialog } from "./reopen-dialog";
+import { RescindDialog } from "./rescind-dialog";
+import { UndoDialog } from "./undo-dialog";
 import { useAdminAction } from "./use-admin-action";
 
 // Move, Close, Hold, Unhold, Reopen, Contacted and Hire now (PLAN.md). Hire now
-// jumps straight to Hired and opens the hire form on the new record.
+// jumps straight to Hired and opens the hire form on the new record. A Hired
+// application can have its hire rescinded; Hiring Managers and Admins can undo
+// the latest change after a confirmation that names it.
 
 type Props = {
   application: Profile["application"];
@@ -21,16 +25,19 @@ type Props = {
   picklists: Profile["picklists"];
   checks: Profile["checks"];
   stint: Profile["stint"];
+  undo: Profile["undo"];
+  rescindStageId: Profile["rescindStageId"];
   role: UserRole;
 };
 
-export function ActionBar({ application, stages, picklists, checks, stint, role }: Props) {
-  const [dialog, setDialog] = useState<"move" | "close" | "reopen" | null>(null);
+export function ActionBar({ application, stages, picklists, checks, stint, undo, rescindStageId, role }: Props) {
+  const [dialog, setDialog] = useState<"move" | "close" | "reopen" | "rescind" | "undo" | null>(null);
   const [hireFormOpen, setHireFormOpen] = useState(false);
   const { run, pending, failure } = useAdminAction();
   const target = { applicationId: application.id, eventSeq: application.eventSeq, currentStageId: application.stageId };
   const base = { applicationId: application.id, expectedSeq: application.eventSeq };
   const isOpen = application.status === "open";
+  const canUndo = role === "admin" || role === "hiring_manager";
 
   return (
     <div className="grid gap-2">
@@ -68,6 +75,16 @@ export function ActionBar({ application, stages, picklists, checks, stint, role 
             Hire record
           </Button>
         ) : null}
+        {application.status === "hired" ? (
+          <Button size="sm" variant="outline" onClick={() => setDialog("rescind")}>
+            Rescind hire
+          </Button>
+        ) : null}
+        {canUndo && undo ? (
+          <Button size="sm" variant="ghost" onClick={() => setDialog("undo")}>
+            Undo last change
+          </Button>
+        ) : null}
       </div>
       <ActionNotice failure={failure} />
 
@@ -76,6 +93,20 @@ export function ActionBar({ application, stages, picklists, checks, stint, role 
       }} />
       <CloseDialog open={dialog === "close"} onOpenChange={(o) => setDialog(o ? "close" : null)} application={application} picklists={picklists} checks={checks} />
       <ReopenDialog open={dialog === "reopen"} onOpenChange={(o) => setDialog(o ? "reopen" : null)} application={application} stages={stages} />
+      {application.status === "hired" ? (
+        <RescindDialog
+          open={dialog === "rescind"}
+          onOpenChange={(o) => setDialog(o ? "rescind" : null)}
+          application={application}
+          stages={stages}
+          picklists={picklists}
+          checks={checks}
+          defaultStageId={rescindStageId}
+        />
+      ) : null}
+      {canUndo && undo ? (
+        <UndoDialog open={dialog === "undo"} onOpenChange={(o) => setDialog(o ? "undo" : null)} application={application} undo={undo} />
+      ) : null}
       {stint ? (
         <HireFormDialog
           open={hireFormOpen}

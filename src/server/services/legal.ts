@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { employer, legalTextVersion } from "@/db/schema";
+import { employer, legalTextKindEnum, legalTextVersion } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "./actor";
 import { writeAudit } from "./audit";
@@ -11,26 +11,15 @@ import { writeAudit } from "./audit";
 // is no status column to flip). The public pages render the Markdown body with
 // the small renderer below, which never passes HTML through.
 
-type SchemaKind = (typeof legalTextVersion.$inferSelect)["kind"];
+export type LegalTextKind = (typeof legalTextVersion.$inferSelect)["kind"];
 
-// opt_in_page is added by drizzle/0002_applicant_opt_in_page.sql and not yet in the
-// Drizzle enum; the casts below are the only place the gap shows.
-export type LegalTextKind = SchemaKind | "opt_in_page";
-
-export const LEGAL_TEXT_KINDS: readonly LegalTextKind[] = [
-  "sms_consent",
-  "privacy_policy",
-  "sms_terms",
-  "landing_notice",
-  "ai_disclosure",
-  "opt_in_page",
-];
+export const LEGAL_TEXT_KINDS: readonly LegalTextKind[] = legalTextKindEnum.enumValues;
 
 export function isLegalTextKind(value: string): value is LegalTextKind {
   return (LEGAL_TEXT_KINDS as readonly string[]).includes(value);
 }
 
-export type LegalTextRow = Omit<typeof legalTextVersion.$inferSelect, "kind"> & { kind: LegalTextKind };
+export type LegalTextRow = typeof legalTextVersion.$inferSelect;
 
 // Phase 1 has one employer; the first non-archived row is it.
 export async function defaultEmployerId(db: Db): Promise<string> {
@@ -50,15 +39,15 @@ export async function currentLegalText(db: Db, kind: LegalTextKind, employerId?:
   const [row] = await db
     .select()
     .from(legalTextVersion)
-    .where(and(eq(legalTextVersion.employerId, emp), eq(legalTextVersion.kind, kind as SchemaKind), isNotNull(legalTextVersion.publishedAt)))
+    .where(and(eq(legalTextVersion.employerId, emp), eq(legalTextVersion.kind, kind), isNotNull(legalTextVersion.publishedAt)))
     .orderBy(desc(legalTextVersion.version))
     .limit(1);
-  return (row as LegalTextRow | undefined) ?? null;
+  return row ?? null;
 }
 
 export async function legalTextById(db: Db, id: string): Promise<LegalTextRow | null> {
   const [row] = await db.select().from(legalTextVersion).where(eq(legalTextVersion.id, id)).limit(1);
-  return (row as LegalTextRow | undefined) ?? null;
+  return row ?? null;
 }
 
 export type PublishLegalTextInput = {
@@ -86,13 +75,13 @@ export async function publishLegalText(db: Db, input: PublishLegalTextInput): Pr
     const [latest] = await tx
       .select({ max: sql<number>`coalesce(max(${legalTextVersion.version}), 0)::int` })
       .from(legalTextVersion)
-      .where(and(eq(legalTextVersion.employerId, employerId), eq(legalTextVersion.kind, input.kind as SchemaKind)));
+      .where(and(eq(legalTextVersion.employerId, employerId), eq(legalTextVersion.kind, input.kind)));
     const version = (latest?.max ?? 0) + 1;
     const id = uuidv7();
     await tx.insert(legalTextVersion).values({
       id,
       employerId,
-      kind: input.kind as SchemaKind,
+      kind: input.kind,
       version,
       body,
       changeNote: input.changeNote ?? null,
