@@ -73,8 +73,9 @@ describe("Settings > Users", () => {
         .select({ action: auditLog.action, changes: auditLog.changes })
         .from(auditLog)
         .where(and(eq(auditLog.entityType, "app_user"), eq(auditLog.entityId, leaver.id)));
-      expect(entries.map((e) => e.action)).toEqual(["user.add", "user.disable"]);
-      expect(entries[1]!.changes).toEqual({ status: { from: "active", to: "disabled" } });
+      // No ORDER BY: Postgres may return the rows in either order, so match by action.
+      expect(entries.map((e) => e.action).sort()).toEqual(["user.add", "user.disable"]);
+      expect(entries.find((e) => e.action === "user.disable")!.changes).toEqual({ status: { from: "active", to: "disabled" } });
 
       // Disabling again changes nothing; re-enabling brings them back without a session.
       expect((await disableUser(tx, { actor, userId: leaver.id })).status).toBe("disabled");
