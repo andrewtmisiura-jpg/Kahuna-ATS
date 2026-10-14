@@ -118,11 +118,27 @@ export function listFilterParams(filters: ListFilters, extra: Record<string, str
 // ---------------------------------------------------------------------------
 // Openings and filter options
 
-export type OpeningOption = { id: string; name: string; status: "draft" | "open" | "closed"; roleId: string; roleName: string; roleKey: string };
+export type OpeningOption = {
+  id: string;
+  name: string;
+  status: "draft" | "open" | "closed";
+  roleId: string;
+  roleName: string;
+  roleKey: string;
+  employerId: string;
+};
 
 export async function listOpenings(db: Db): Promise<OpeningOption[]> {
   const rows = await db
-    .select({ id: opening.id, name: opening.name, status: opening.status, roleId: opening.roleId, roleName: role.internalName, roleKey: role.key })
+    .select({
+      id: opening.id,
+      name: opening.name,
+      status: opening.status,
+      roleId: opening.roleId,
+      roleName: role.internalName,
+      roleKey: role.key,
+      employerId: role.employerId,
+    })
     .from(opening)
     .innerJoin(role, eq(role.id, opening.roleId))
     .orderBy(asc(role.sortOrder), desc(opening.createdAt));
