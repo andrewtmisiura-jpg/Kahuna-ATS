@@ -18,6 +18,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed/run.ts",
     "user:add-admin": "tsx src/cli/add-admin.ts",
+    "quo:connect": "tsx src/cli/quo-connect.ts connect",
+    "quo:webhook": "tsx src/cli/quo-connect.ts webhook",
     "db:local:init": "bash scripts/db-local.sh init",
     "db:local:start": "bash scripts/db-local.sh start",
     "db:local:stop": "bash scripts/db-local.sh stop",
