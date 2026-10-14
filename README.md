@@ -21,7 +21,7 @@ Kahuna Window Cleaning's hiring system: applicant pages, staff review, texts and
 - `src/server/services` holds all business logic as plain functions that take a `Db` handle; route handlers and server actions only call them.
 - `src/server/auth` is Better Auth (Google sign-in, allowlist, database sessions) and `requireRole`.
 - `src/db` is Drizzle: `schema/` per area, `migrate.ts`, `seed.ts`; migrations live in `drizzle/`.
-- `src/cron/index.ts` is the cron entry point. `railway.json` holds the build, pre-deploy migrate and `/health` check.
+- `src/cron/index.ts` is the cron entry point. `railway.json` configures the web service (build, pre-deploy migrate, `/health` check); point the cron service at `railway.cron.json` in its Railway settings so it runs `pnpm cron` every 5 minutes without a healthcheck.
 
 Next.js ships its own current documentation in `node_modules/next/dist/docs`; read it before writing App Router code, since conventions moved in version 16 (for example `proxy.ts` replaces `middleware.ts`).
 
