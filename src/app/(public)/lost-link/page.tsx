@@ -1,26 +1,19 @@
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { headers } from "next/headers";
+import { LostLinkForm } from "@/components/applicant/lost-link-form";
+import { APPLICANT_COPY } from "@/components/applicant/status-copy";
+import { turnstileSiteKey } from "@/server/actions/applicant/turnstile";
 
 export const metadata = { title: "Lost your link?" };
+export const dynamic = "force-dynamic";
 
-// Stage 3 wires this form: Turnstile check, then a fresh link to the details on file.
-export default function LostLinkPage() {
+// Mobile plus email; always the same neutral answer; a fresh link only on a match.
+export default async function LostLinkPage() {
+  const nonce = (await headers()).get("x-nonce");
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Lost your application link?</h1>
-      <p className="text-muted-foreground">
-        Enter the mobile number or email you applied with and we will send your link again.
-      </p>
-      <form className="space-y-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="contact">Mobile number or email</Label>
-          <Input id="contact" name="contact" inputMode="email" autoComplete="email" disabled />
-        </div>
-        <Button type="submit" className="w-full" disabled>
-          Send my link
-        </Button>
-      </form>
+      <h1 className="text-2xl font-semibold tracking-tight">{APPLICANT_COPY.lostLinkHeading}</h1>
+      <p className="text-muted-foreground">{APPLICANT_COPY.lostLinkHelp}</p>
+      <LostLinkForm turnstileSiteKey={turnstileSiteKey()} nonce={nonce} />
     </div>
   );
 }

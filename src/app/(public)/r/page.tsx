@@ -1,10 +1,10 @@
-// Resume link target: the token arrives after "#", so it never reaches the server log.
-// Stage 3 posts it once, sets the HttpOnly cookie and continues to /apply.
+import { ResumeClient } from "@/components/applicant/resume-client";
+
+// Resume link target: the token arrives after "#", so it never reaches the server
+// log. The client posts it once to /api/applicant/resume and continues to /apply.
+export const metadata = { title: "Opening your application" };
+export const dynamic = "force-dynamic";
+
 export default function ResumePage() {
-  return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-semibold tracking-tight">Opening your application</h1>
-      <p className="text-muted-foreground">One moment while we find your saved answers.</p>
-    </div>
-  );
+  return <ResumeClient />;
 }

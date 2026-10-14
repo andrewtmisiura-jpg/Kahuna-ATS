@@ -1,23 +1,14 @@
-export const metadata = { title: "Text messages" };
+import { LegalArticle, LegalMissing } from "@/components/applicant/legal-article";
+import { db } from "@/db";
+import { currentLegalText, renderMarkdown } from "@/server/services/legal";
 
-// Permanent opt-in page: shows applicants and carriers exactly how text consent is collected.
-export default function TextMessagesPage() {
-  return (
-    <article className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Text messages from Kahuna Window Cleaning</h1>
-      <p className="text-muted-foreground">
-        When you start a job application you may tick an optional, unchecked box with this wording:
-      </p>
-      <blockquote className="rounded-md border bg-muted/40 p-3 text-sm">
-        Text me my application link and updates about this application (optional). I agree that
-        Kahuna Window Cleaning may text me at the number above about my job application: my
-        application link, reminders, interview scheduling, status updates and decisions. Msg
-        frequency varies. Msg &amp; data rates may apply. Reply HELP for help, STOP to opt out.
-        Consent is not a condition of applying. See our SMS Terms and Privacy Policy.
-      </blockquote>
-      <p className="text-muted-foreground">
-        Texts come from 763-292-2259. Reply STOP at any time to stop them.
-      </p>
-    </article>
-  );
+export const metadata = { title: "Text messages" };
+export const dynamic = "force-dynamic";
+
+// The permanent opt-in page: served from the current published opt_in_page
+// version (pnpm legal:publish opt_in_page content/legal/opt-in-page.md).
+export default async function TextMessagesPage() {
+  const text = await currentLegalText(db, "opt_in_page");
+  if (!text) return <LegalMissing title="Text messages from Kahuna Window Cleaning Hiring" />;
+  return <LegalArticle html={renderMarkdown(text.body)} />;
 }
