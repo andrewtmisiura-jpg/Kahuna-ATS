@@ -26,11 +26,14 @@ import {
   updateContact,
   updateIndeedAppliedOn,
 } from "@/server/services/people";
+import { withRollback } from "./helpers/db";
 import { createPerson, loadAdminId, loadOption, loadSnow, loadStages, nextMobile, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 
 let snow: SnowFixture;
 let stages: Record<string, string>;
 let adminId: string;
+// The seeded Admin stands in for a Hiring Manager: the services take the role as
+// an argument, and the seed test counts app_user rows exactly.
 let managerId: string;
 let staff: { type: "staff"; userId: string };
 const applicant = { type: "applicant" } as const;
@@ -41,8 +44,7 @@ beforeAll(async () => {
   stages = await loadStages(db, snow.roleId);
   adminId = await loadAdminId(db);
   staff = { type: "staff", userId: adminId };
-  managerId = uuidv7();
-  await db.insert(appUser).values({ id: managerId, email: `manager-${managerId}@example.test`, role: "hiring_manager", name: "Morgan Manager" });
+  managerId = adminId;
 });
 
 afterAll(async () => {
@@ -120,9 +122,11 @@ describe("notes", () => {
     // Viewers never see a restricted note.
     expect((await loadProfile(db, applicationId, "viewer"))!.notes).toHaveLength(0);
 
-    const otherId = uuidv7();
-    await db.insert(appUser).values({ id: otherId, email: `other-${otherId}@example.test`, role: "hiring_manager" });
-    await expect(deleteNote(db, { noteId: edited.noteId, userId: otherId, role: "hiring_manager" })).rejects.toMatchObject({ code: "not_allowed" });
+    await withRollback(db, async (tx) => {
+      const otherId = uuidv7();
+      await tx.insert(appUser).values({ id: otherId, email: `other-${otherId}@example.test`, role: "hiring_manager" });
+      await expect(deleteNote(tx, { noteId: edited.noteId, userId: otherId, role: "hiring_manager" })).rejects.toMatchObject({ code: "not_allowed" });
+    });
     await deleteNote(db, { noteId: edited.noteId, userId: adminId, role: "admin" });
     expect((await loadProfile(db, applicationId, "admin"))!.notes).toHaveLength(0);
     expect((await audits(applicationId)).map((a) => a.action)).toEqual(["note.delete", "note.edit"]);
@@ -190,7 +194,7 @@ describe("contact edits and housekeeping", () => {
     expect(live).toMatchObject({ reason: "staff_marked", createdBy: managerId });
     const profile = await loadProfile(db, applicationId, "admin");
     expect(profile!.texting?.suppression?.reason).toBe("staff_marked");
-    expect(profile!.consents[0]!.recordedByName).toBe("Morgan Manager");
+    expect(profile!.consents[0]!.recordedByName).toBe(TEST_ADMIN_EMAIL);
   });
 
   it("marks an inbound text handled once", async () => {

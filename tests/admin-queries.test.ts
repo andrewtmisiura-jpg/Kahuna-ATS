@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
-import { answer, application, groupSession, hireStint, landingConflict, message, opening, question, questionVersion, role } from "@/db/schema";
+import { answer, application, groupSession, hireStint, landingConflict, message, question, questionVersion, role } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import {
@@ -16,14 +16,21 @@ import {
   loadProfile,
   neighbors,
   parseListFilters,
+  type AttentionCounts,
+  type ListCounts,
   type ListFilters,
 } from "@/server/services/applications/queries";
 import { createApplication, transition } from "@/server/services/applications/transition";
 import { addDays, centralDate } from "@/server/services/time";
 import { createPerson, loadAdminId, loadOption, loadSnow, loadStages, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 
-// The list view's queries against a closed test opening of the snow role, so the
-// counts are not disturbed by the applications other test files create.
+// The list view's queries. Test files share one database and the seed test
+// counts the configuration tables exactly, so these fixtures live on the seeded
+// snow opening: every surname carries a tag the search isolates, and the counts
+// are compared with a baseline taken before the fixtures were written.
+
+const TAG = "Qzadmin";
+const n = (name: string) => `${name}${TAG}`;
 
 let snow: SnowFixture;
 let stages: Record<string, string>;
@@ -32,19 +39,22 @@ let staff: { type: "staff"; userId: string };
 let openingId: string;
 let sessionId: string;
 let codeId: string;
+let baseline: { all: ListCounts; recent: ListCounts; attention: AttentionCounts };
 const ids: Record<string, string> = {};
-const people: Record<string, string> = {};
 
 const applicant = { type: "applicant" } as const;
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
+const today = () => centralDate(new Date());
 
-async function startApplication(name: string, options: { startedAt?: Date; entryCodeId?: string | null; source?: "indeed" | "referral" | null; session?: boolean; email?: string; mobile?: string } = {}) {
+async function startApplication(
+  name: string,
+  options: { startedAt?: Date; entryCodeId?: string | null; source?: "indeed" | "referral" | null; session?: boolean; email?: string; mobile?: string } = {},
+) {
   const [first, last] = name.split(" ");
   const personId = await createPerson(db, {
     firstName: first,
-    lastName: last,
-    email: options.email,
-    emailNormalized: options.email?.toLowerCase(),
+    lastName: n(last!),
+    ...(options.email ? { email: options.email, emailNormalized: options.email.toLowerCase() } : {}),
     ...(options.mobile ? { mobileE164: options.mobile } : {}),
   });
   const { applicationId } = await createApplication(db, {
@@ -58,7 +68,6 @@ async function startApplication(name: string, options: { startedAt?: Date; entry
     actor: applicant,
     occurredAt: options.startedAt,
   });
-  people[name] = personId;
   ids[name] = applicationId;
   return { applicationId, personId };
 }
@@ -73,15 +82,19 @@ beforeAll(async () => {
   stages = await loadStages(db, snow.roleId);
   adminId = await loadAdminId(db);
   staff = { type: "staff", userId: adminId };
+  openingId = snow.openingId;
+  baseline = {
+    all: await listCounts(db, { openingId }),
+    recent: await listCounts(db, { openingId, from: addDays(today(), -1) }),
+    attention: await attentionCounts(db, openingId),
+  };
 
-  openingId = uuidv7();
-  await db.insert(opening).values({ id: openingId, roleId: snow.roleId, key: "snow-admin-test", name: "Snow admin test", status: "closed" });
   sessionId = uuidv7();
   await db.insert(groupSession).values({
     id: sessionId,
     openingId,
     startsAt: new Date("2026-10-20T23:00:00Z"),
-    locationName: "Golden Valley shop",
+    locationName: `Golden Valley shop ${TAG}`,
     status: "scheduled",
     createdBy: adminId,
   });
@@ -142,7 +155,7 @@ beforeAll(async () => {
     id: uuidv7(),
     openingId,
     typedFirstName: "Alice",
-    typedLastName: "Winter",
+    typedLastName: n("Winter"),
     typedMobileE164: "+16125550123",
     typedEmail: "other@example.test",
     matchedPersonIds: [alice.personId],
@@ -167,8 +180,9 @@ afterAll(async () => {
   await sql.end();
 });
 
+// Only this file's fixtures: the tag in every surname narrows the list.
 function filters(extra: Partial<ListFilters> = {}): ListFilters {
-  return { openingId, ...extra };
+  return { openingId, search: TAG, ...extra };
 }
 
 async function names(extra: Partial<ListFilters> = {}, role: "admin" | "viewer" = "admin") {
@@ -180,8 +194,9 @@ describe("openings and filter parsing", () => {
   it("lists openings and opens on the open one by default", async () => {
     const openings = await listOpenings(db);
     expect(openings.some((o) => o.id === openingId)).toBe(true);
-    expect(defaultOpening(openings)?.status).toBe("open");
-    expect(defaultOpening(openings, openingId)?.id).toBe(openingId);
+    expect(defaultOpening(openings)?.id).toBe(openingId);
+    const windowOpening = openings.find((o) => o.roleKey === "window_cleaning_tech")!;
+    expect(defaultOpening(openings, windowOpening.id)?.id).toBe(windowOpening.id);
   });
 
   it("parses the URL and drops unknown values", () => {
@@ -199,77 +214,78 @@ describe("openings and filter parsing", () => {
     const options = await listFilterOptions(db, openings.find((o) => o.id === openingId)!);
     expect(options.stages.map((s) => s.key)).toContain("reviewed");
     expect(options.entryCodes.some((c) => c.code === "SNW26QR")).toBe(true);
-    expect(options.sessions).toHaveLength(1);
-    expect(options.sessions[0]!.label).toContain("Golden Valley shop");
+    expect(options.sessions.some((s) => s.id === sessionId && s.label.includes("Golden Valley shop"))).toBe(true);
   });
 });
 
 describe("counts", () => {
   it("counts started, in progress, submitted and the rate, overall and per entry code", async () => {
-    const counts = await listCounts(db, filters());
-    expect(counts.total).toEqual({ started: 8, inProgress: 1, submitted: 6, submitRate: 6 / 8 });
-    const qr = counts.byEntryCode.find((c) => c.code === "SNW26QR");
-    expect(qr).toMatchObject({ started: 1, submitted: 1, inProgress: 0, submitRate: 1 });
-    const none = counts.byEntryCode.find((c) => c.entryCodeId === null);
-    expect(none).toMatchObject({ label: "No entry code", started: 7, submitted: 5 });
+    const counts = await listCounts(db, { openingId });
+    const started = baseline.all.total.started + 8;
+    const submitted = baseline.all.total.submitted + 6;
+    expect(counts.total).toEqual({ started, inProgress: baseline.all.total.inProgress + 1, submitted, submitRate: submitted / started });
+    const before = (id: string | null) => baseline.all.byEntryCode.find((c) => c.entryCodeId === id) ?? { started: 0, submitted: 0, inProgress: 0 };
+    const qr = counts.byEntryCode.find((c) => c.code === "SNW26QR")!;
+    expect(qr).toMatchObject({ started: before(codeId).started + 1, submitted: before(codeId).submitted + 1 });
+    const none = counts.byEntryCode.find((c) => c.entryCodeId === null)!;
+    expect(none).toMatchObject({ label: "No entry code", started: before(null).started + 7, submitted: before(null).submitted + 5 });
   });
 
   it("applies the date range to the counts", async () => {
-    const counts = await listCounts(db, filters({ from: addDays(centralDate(new Date()), -1) }));
-    expect(counts.total.started).toBe(7);
+    const counts = await listCounts(db, { openingId, from: addDays(today(), -1) });
+    expect(counts.total.started).toBe(baseline.recent.total.started + 7);
   });
 
   it("builds the attention strip", async () => {
     const strip = await attentionCounts(db, openingId);
-    expect(strip.unhandledTexts).toBeGreaterThanOrEqual(1);
-    expect(strip.openConflicts).toBe(1);
-    expect(strip.notRehireEligible).toBe(1);
+    expect(strip.unhandledTexts).toBe(baseline.attention.unhandledTexts + 1);
+    expect(strip.openConflicts).toBe(baseline.attention.openConflicts + 1);
+    expect(strip.notRehireEligible).toBe(baseline.attention.notRehireEligible + 1);
   });
 });
 
 describe("rows and filters", () => {
   it("leaves started applications out unless the status filter asks", async () => {
-    expect(await names()).toEqual(["Alice Winter", "Bob Holder", "Carl Closed", "Dana Young", "Evan Hired", "Fay Returning"]);
-    expect(await names({ status: "started" })).toEqual(["Ingrid Started", "Olga Old"]);
+    expect(await names()).toEqual(["Alice Winter", "Bob Holder", "Carl Closed", "Dana Young", "Evan Hired", "Fay Returning"].map(n));
+    expect(await names({ status: "started" })).toEqual(["Ingrid Started", "Olga Old"].map(n));
     expect(await names({ status: "all" })).toHaveLength(8);
   });
 
   it("filters by status", async () => {
-    expect(await names({ status: "open" })).toEqual(["Alice Winter", "Bob Holder", "Dana Young", "Fay Returning"]);
-    expect(await names({ status: "hired" })).toEqual(["Evan Hired"]);
-    expect(await names({ status: "closed" })).toEqual(["Carl Closed"]);
+    expect(await names({ status: "open" })).toEqual(["Alice Winter", "Bob Holder", "Dana Young", "Fay Returning"].map(n));
+    expect(await names({ status: "hired" })).toEqual([n("Evan Hired")]);
+    expect(await names({ status: "closed" })).toEqual([n("Carl Closed")]);
   });
 
   it("filters by stage, source, entry code, session, hold, attention and conflicts", async () => {
-    expect(await names({ stageId: stages.reviewed })).toEqual(["Bob Holder"]);
-    expect(await names({ source: "indeed" })).toEqual(["Alice Winter"]);
-    expect(await names({ source: "none" })).toEqual(["Carl Closed", "Dana Young", "Evan Hired", "Fay Returning"]);
-    expect(await names({ entryCodeId: codeId })).toEqual(["Alice Winter"]);
+    expect(await names({ stageId: stages.reviewed })).toEqual([n("Bob Holder")]);
+    expect(await names({ source: "indeed" })).toEqual([n("Alice Winter")]);
+    expect(await names({ source: "none" })).toEqual(["Carl Closed", "Dana Young", "Evan Hired", "Fay Returning"].map(n));
+    expect(await names({ entryCodeId: codeId })).toEqual([n("Alice Winter")]);
     expect(await names({ entryCodeId: "none" })).toHaveLength(5);
-    expect(await names({ sessionId })).toEqual(["Alice Winter"]);
+    expect(await names({ sessionId })).toEqual([n("Alice Winter")]);
     expect(await names({ sessionId: "none" })).toHaveLength(5);
-    expect(await names({ onHold: true })).toEqual(["Bob Holder"]);
-    expect(await names({ attention: true })).toEqual(["Dana Young"]);
-    expect(await names({ conflicts: true })).toEqual(["Alice Winter"]);
+    expect(await names({ onHold: true })).toEqual([n("Bob Holder")]);
+    expect(await names({ attention: true })).toEqual([n("Dana Young")]);
+    expect(await names({ conflicts: true })).toEqual([n("Alice Winter")]);
   });
 
   it("filters by date range on the start time", async () => {
-    const today = centralDate(new Date());
-    expect(await names({ status: "all", to: addDays(today, -2) })).toEqual(["Olga Old"]);
-    expect(await names({ status: "all", from: addDays(today, -1) })).toHaveLength(7);
+    expect(await names({ status: "all", to: addDays(today(), -2) })).toEqual([n("Olga Old")]);
+    expect(await names({ status: "all", from: addDays(today(), -1) })).toHaveLength(7);
   });
 
   it("searches by name, mobile or email", async () => {
-    expect(await names({ search: "winter" })).toEqual(["Alice Winter"]);
-    expect(await names({ search: "alice w" })).toEqual(["Alice Winter"]);
-    expect(await names({ search: "(612) 555-0123" })).toEqual(["Alice Winter"]);
-    expect(await names({ search: "alice.winter@" })).toEqual(["Alice Winter"]);
-    expect(await names({ search: "nobody" })).toEqual([]);
+    expect(await names({ search: `winter${TAG}` })).toEqual([n("Alice Winter")]);
+    expect(await names({ search: "alice w" })).toEqual([n("Alice Winter")]);
+    expect(await names({ search: "(612) 555-0123" })).toEqual([n("Alice Winter")]);
+    expect(await names({ search: "alice.winter@" })).toEqual([n("Alice Winter")]);
+    expect(await names({ search: `nobody${TAG}` })).toEqual([]);
   });
 
   it("marks returning people, attention answers, unhandled texts and the hold", async () => {
     const page = await listApplications(db, filters(), "admin");
-    const row = (name: string) => page.rows.find((r) => `${r.firstName} ${r.lastName}` === name)!;
+    const row = (name: string) => page.rows.find((r) => `${r.firstName} ${r.lastName}` === n(name))!;
     expect(row("Fay Returning").returning).toBe("not_rehire_eligible");
     expect(row("Alice Winter").returning).toBe("none");
     expect(row("Dana Young").attention).toEqual([{ prompt: "Are you 18 or older?", value: "No" }]);
@@ -286,7 +302,7 @@ describe("rows and filters", () => {
     const page = await listApplications(db, filters(), "viewer");
     expect(page.rows.every((r) => r.mobile === null && r.email === null)).toBe(true);
     expect(await names({ search: "612" }, "viewer")).toEqual([]);
-    expect(await names({ search: "Winter" }, "viewer")).toEqual(["Alice Winter"]);
+    expect(await names({ search: `Winter${TAG}` }, "viewer")).toEqual([n("Alice Winter")]);
   });
 
   it("orders newest first and finds the neighbours of a row", async () => {
@@ -349,6 +365,6 @@ describe("profile", () => {
     const { applicationId } = await startApplication("Gone Deleted");
     await db.update(application).set({ deletedAt: new Date() }).where(eq(application.id, applicationId));
     expect(await loadProfile(db, applicationId, "admin")).toBeNull();
-    expect(await names({ status: "all" })).not.toContain("Gone Deleted");
+    expect(await names({ status: "all" })).not.toContain(n("Gone Deleted"));
   });
 });
