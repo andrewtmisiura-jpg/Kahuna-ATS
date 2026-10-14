@@ -167,9 +167,16 @@ export const answer = pgTable(
   ],
 );
 
+// Written by the transition function: the FCRA facts behind a closure, and the
+// rows a move created or voided so that voiding the move can undo them.
 export type ApplicationEventMetadata = {
   background_check_ids?: string[];
   not_report_based?: boolean;
+  offer_id?: string;
+  background_check_id?: string;
+  hire_stint_id?: string;
+  voided_hire_stint_id?: string;
+  rescinded_hire_stint_id?: string;
   [key: string]: unknown;
 };
 

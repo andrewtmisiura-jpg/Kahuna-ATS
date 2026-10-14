@@ -1,7 +1,20 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, applicationEvent, formVersion, opening, person, pipelineStage, role } from "@/db/schema";
+import {
+  application,
+  applicationEvent,
+  appUser,
+  employer,
+  formVersion,
+  opening,
+  person,
+  picklistOption,
+  pipelineStage,
+  role,
+} from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
+
+type PicklistKey = (typeof picklistOption.$inferSelect)["listKey"];
 
 export const TEST_ADMIN_EMAIL = "admin@example.test";
 
@@ -84,4 +97,35 @@ export async function createApplication(db: Db, snow: SnowFixture, personId: str
     occurredAt: now,
   });
   return { applicationId: id, eventId };
+}
+
+// Stage ids of a role keyed by stage key, e.g. stages.submitted.
+export async function loadStages(db: Db, roleId: string): Promise<Record<string, string>> {
+  const rows = await db
+    .select({ key: pipelineStage.key, id: pipelineStage.id })
+    .from(pipelineStage)
+    .where(eq(pipelineStage.roleId, roleId));
+  return Object.fromEntries(rows.map((row) => [row.key, row.id]));
+}
+
+// A seeded picklist option id by list and key.
+export async function loadOption(db: Db, listKey: PicklistKey, key: string): Promise<string> {
+  const [row] = await db
+    .select({ id: picklistOption.id })
+    .from(picklistOption)
+    .where(and(eq(picklistOption.listKey, listKey), eq(picklistOption.key, key)));
+  if (!row) throw new Error(`picklist option ${listKey}/${key} missing`);
+  return row.id;
+}
+
+export async function loadEmployer(db: Db) {
+  const [row] = await db.select().from(employer).where(eq(employer.key, "kahuna"));
+  if (!row) throw new Error("employer missing: run the seed first");
+  return row;
+}
+
+export async function loadAdminId(db: Db): Promise<string> {
+  const [row] = await db.select({ id: appUser.id }).from(appUser).where(eq(appUser.email, TEST_ADMIN_EMAIL));
+  if (!row) throw new Error("test admin missing: run the seed first");
+  return row.id;
 }
