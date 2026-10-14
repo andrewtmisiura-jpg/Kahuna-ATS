@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, CircleHelp, Columns3, List, ListChecks, QrCode, Settings } from "lucide-react";
+import { CalendarDays, CircleHelp, Columns3, Download, List, ListChecks, QrCode, Settings } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -20,6 +20,7 @@ const items: NavItem[] = [
   { href: "/admin/sessions", label: "Sessions", icon: CalendarDays, onPhone: true },
   { href: "/admin/codes", label: "Codes", icon: QrCode, onPhone: true },
   { href: "/admin/questions", label: "Questions", icon: ListChecks, onPhone: false },
+  { href: "/admin/exports", label: "Exports", icon: Download, onPhone: false },
   { href: "/admin/settings", label: "Settings", icon: Settings, onPhone: true },
   { href: "/help", label: "Help", icon: CircleHelp, onPhone: false },
 ];
