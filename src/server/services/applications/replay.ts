@@ -35,7 +35,10 @@ export const STATE_CHANGING_KINDS: readonly EventKind[] = [
 // Events that can never be voided.
 export const NEVER_VOIDED_KINDS: readonly EventKind[] = ["created", "submitted", "event_voided", "person_merged"];
 
-export function voidedEventIds(events: readonly EventRow[]): Set<string> {
+// The fields voiding needs, so the profile's event shape works here too.
+type VoidableEvent = Pick<EventRow, "id" | "seq" | "kind" | "voidsEventId">;
+
+export function voidedEventIds(events: readonly VoidableEvent[]): Set<string> {
   const ids = new Set<string>();
   for (const event of events) {
     if (event.kind === "event_voided" && event.voidsEventId) ids.add(event.voidsEventId);
@@ -45,11 +48,21 @@ export function voidedEventIds(events: readonly EventRow[]): Set<string> {
 
 // The events that count: in seq order, without event_voided rows and without the
 // events they voided.
-export function effectiveEvents(events: readonly EventRow[]): EventRow[] {
+export function effectiveEvents<T extends VoidableEvent>(events: readonly T[]): T[] {
   const voided = voidedEventIds(events);
   return [...events]
     .sort((a, b) => a.seq - b.seq)
     .filter((event) => event.kind !== "event_voided" && !voided.has(event.id));
+}
+
+// The one event "Undo last change" may void: the latest state-changing event that
+// still counts. Null when nothing after creation and submission changed the state.
+export function latestStateChange<T extends VoidableEvent>(events: readonly T[]): T | null {
+  return (
+    effectiveEvents(events)
+      .filter((event) => STATE_CHANGING_KINDS.includes(event.kind))
+      .at(-1) ?? null
+  );
 }
 
 export function replayEvents(events: readonly EventRow[]): CachedState {

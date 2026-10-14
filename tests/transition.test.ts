@@ -447,6 +447,30 @@ describe("rescinding a hire", () => {
     );
   });
 
+  it("refuses to reopen without a target stage, or into Hired, and leaves the stint alone", async () => {
+    const { applicationId } = await newApplication({ submitted: true });
+    const hired = await move(applicationId, stages.hired);
+    const before = await loadApp(applicationId);
+    await expectCode(
+      transition(db, { action: "rescind_hire", applicationId, actor: staff, voidReason: "Start date fell through", to: { status: "open" } }),
+      "stage_required",
+    );
+    await expectCode(
+      transition(db, { action: "rescind_hire", applicationId, actor: staff, voidReason: "Start date fell through", to: { status: "open", toStageId: stages.hired } }),
+      "stage_not_allowed",
+    );
+    await expectCode(
+      transition(db, { action: "rescind_hire", applicationId, actor: staff, voidReason: "  ", to: { status: "open", toStageId: stages.reviewed } }),
+      "note_required",
+    );
+    // Nothing was written: still hired, same seq, the stint still active.
+    const after = await loadApp(applicationId);
+    expect(after.status).toBe("hired");
+    expect(after.eventSeq).toBe(before.eventSeq);
+    const [stint] = await db.select().from(hireStint).where(eq(hireStint.id, hired.created.hireStintId!));
+    expect(stint!.voidedAt).toBeNull();
+  });
+
   it("can send the person back to an earlier stage, and voiding the rescission restores the stint", async () => {
     const { applicationId } = await newApplication({ submitted: true });
     const hired = await move(applicationId, stages.hired);
@@ -459,6 +483,8 @@ describe("rescinding a hire", () => {
     });
     expect(rescinded.application.status).toBe("open");
     expect(rescinded.application.currentStageId).toBe(stages.one_on_one_done);
+    expect(rescinded.event.fromStageId).toBe(stages.hired);
+    expect(rescinded.event.toStageId).toBe(stages.one_on_one_done);
 
     const restored = await transition(db, { action: "void", applicationId, eventId: rescinded.event.id, actor: staff });
     expect(restored.application.status).toBe("hired");

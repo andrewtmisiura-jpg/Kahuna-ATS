@@ -23,6 +23,7 @@ import { writeAudit } from "../audit";
 import { addWeekdays, centralDate } from "../time";
 import {
   effectiveEvents,
+  latestStateChange,
   NEVER_VOIDED_KINDS,
   replayEvents,
   STATE_CHANGING_KINDS,
@@ -57,6 +58,7 @@ export type TransitionErrorCode =
   | "stage_archived"
   | "same_stage"
   | "stage_not_allowed"
+  | "stage_required"
   | "application_closed"
   | "application_not_closed"
   | "application_hired"
@@ -170,6 +172,8 @@ export type TransitionInput = BaseInput &
     | {
         action: "rescind_hire";
         voidReason: string;
+        // Back to open needs the stage to go back to (the service refuses it without one);
+        // the field stays optional here so a request missing it fails with stage_required.
         to: { status: "open"; toStageId?: string } | ({ status: "closed" } & CloseInput);
       }
   );
@@ -372,10 +376,7 @@ async function planVoid(tx: Tx, events: EventRow[], eventId: string, now: Date) 
   }
   if (voidedEventIds(events).has(target.id)) throw new TransitionError("event_already_voided", "Already voided");
   if (STATE_CHANGING_KINDS.includes(target.kind)) {
-    const latest = effectiveEvents(events)
-      .filter((event) => STATE_CHANGING_KINDS.includes(event.kind))
-      .at(-1);
-    if (latest?.id !== target.id) {
+    if (latestStateChange(events)?.id !== target.id) {
       throw new TransitionError("event_not_latest", "Only the latest change can be voided; void the later ones first");
     }
   }
@@ -402,36 +403,29 @@ async function planRescind(
   now: Date,
 ): Promise<Partial<EventInsert> & { kind: "hire_rescinded" }> {
   if (app.status !== "hired") throw new TransitionError("application_not_hired", "Only a hired application can be rescinded");
-  const metadata: ApplicationEventMetadata = {};
+  if (!input.voidReason.trim()) throw new TransitionError("note_required", "Say why the hire is rescinded");
+
+  // Check where the application goes before touching the stint. An open
+  // application cannot stay in the Hired stage, so going back to open names the stage.
+  let plan: Partial<EventInsert> & { kind: "hire_rescinded" };
+  if (input.to.status === "open") {
+    if (!input.to.toStageId) throw new TransitionError("stage_required", "Pick the stage the application goes back to");
+    const toStage = await loadStage(tx, app, input.to.toStageId);
+    if (toStage.milestone === "hired") throw new TransitionError("stage_not_allowed", "Pick a stage before Hired");
+    plan = { kind: "hire_rescinded", fromStatus: "hired", toStatus: "open", fromStageId: currentStage.id, toStageId: toStage.id };
+  } else {
+    const reason = await loadReason(tx, app, input.to.outcome, input.to.reasonOptionId, input.note);
+    const fcra = await fcraMetadata(tx, app, reason, input.to.outcome, occurredAt, input.to.fcra, input.actor);
+    plan = { kind: "hire_rescinded", fromStatus: "hired", toStatus: "closed", closedOutcome: input.to.outcome, reasonOptionId: reason.id, metadata: fcra };
+  }
+
+  const metadata: ApplicationEventMetadata = { ...(plan.metadata ?? {}) };
   const stint = await activeStint(tx, app.id);
   if (stint) {
-    await voidStint(tx, stint.id, "rescinded", input.voidReason, now);
+    await voidStint(tx, stint.id, "rescinded", input.voidReason.trim(), now);
     metadata.rescinded_hire_stint_id = stint.id;
   }
-
-  if (input.to.status === "open") {
-    const toStage = input.to.toStageId ? await loadStage(tx, app, input.to.toStageId) : null;
-    if (toStage?.milestone === "hired") throw new TransitionError("stage_not_allowed", "Pick a stage before Hired");
-    return {
-      kind: "hire_rescinded",
-      fromStatus: "hired",
-      toStatus: "open",
-      fromStageId: toStage ? currentStage.id : null,
-      toStageId: toStage?.id ?? null,
-      metadata,
-    };
-  }
-
-  const reason = await loadReason(tx, app, input.to.outcome, input.to.reasonOptionId, input.note);
-  const fcra = await fcraMetadata(tx, app, reason, input.to.outcome, occurredAt, input.to.fcra, input.actor);
-  return {
-    kind: "hire_rescinded",
-    fromStatus: "hired",
-    toStatus: "closed",
-    closedOutcome: input.to.outcome,
-    reasonOptionId: reason.id,
-    metadata: { ...metadata, ...fcra },
-  };
+  return { ...plan, metadata: Object.keys(metadata).length ? metadata : null };
 }
 
 // The FCRA gate (PLAN.md, Decisions; DATA_MODEL.md, Key invariants). A

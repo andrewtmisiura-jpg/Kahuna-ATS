@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, desc, eq, isNull, lte, notExists, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, isNull, lte, notExists, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { env } from "@/config/env";
 import type { Db } from "@/db";
 import { employer, message, person } from "@/db/schema";
@@ -11,7 +11,9 @@ import { processMessages, queueMessage } from "./send";
 // table notes). Every inbound text that keyword handling did not settle stays
 // unhandled until a person marks it. Each one is emailed to the hiring address
 // at once and again when it has sat unhandled for two business days. The admin
-// area calls listUnhandledInbound, countUnhandledInbound and markHandled.
+// area calls listUnhandledInbound, countUnhandledInbound and markHandled: the
+// list's attention strip, each list row, the profile and the digest all count
+// with unhandledInboundWhere, and the profile's "Mark handled" is markHandled.
 
 export const REALERT_AFTER_BUSINESS_DAYS = 2;
 export const INBOX_ALERT_PREFIX = "inbox_alert:";
@@ -28,7 +30,22 @@ export type UnhandledInbound = {
   lastName: string | null;
 };
 
-const unhandledWhere = and(eq(message.direction, "inbound"), isNull(message.handledAt), isNull(message.redactedAt));
+// The texts one application's profile shows: those filed to it, plus the person's
+// texts filed to no application. The columns are parameters so a list query can
+// correlate them with its own application row.
+export type InboundScope = { applicationId: string | AnyColumn; personId: string | AnyColumn };
+
+function scopeWhere(scope: InboundScope): SQL {
+  return or(eq(message.applicationId, scope.applicationId), and(eq(message.personId, scope.personId), isNull(message.applicationId)))!;
+}
+
+// The one rule for "unhandled": an inbound text nobody has marked handled, and not
+// stripped by the purge. With a scope, only that profile's texts.
+export function unhandledInboundWhere(scope?: InboundScope): SQL {
+  return and(eq(message.direction, "inbound"), isNull(message.handledAt), isNull(message.redactedAt), scope ? scopeWhere(scope) : undefined)!;
+}
+
+const unhandledWhere = unhandledInboundWhere();
 
 export async function listUnhandledInbound(db: Db, options: { limit?: number } = {}): Promise<UnhandledInbound[]> {
   return db
@@ -49,12 +66,19 @@ export async function listUnhandledInbound(db: Db, options: { limit?: number } =
     .limit(options.limit ?? 200);
 }
 
-export async function countUnhandledInbound(db: Db): Promise<number> {
-  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(message).where(unhandledWhere);
+// Every unhandled text, or with a scope only the ones one profile shows.
+export async function countUnhandledInbound(db: Db, scope?: { applicationId: string; personId: string }): Promise<number> {
+  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(message).where(unhandledInboundWhere(scope));
   return row?.count ?? 0;
 }
 
-// Marks one inbound text handled. False when it was already handled or is not an inbound text.
+// The same count as a correlated subquery, for a query over application rows.
+export function unhandledInboundCountSql(applicationId: AnyColumn, personId: AnyColumn): SQL<number> {
+  return sql<number>`(select count(*)::int from ${message} where ${unhandledInboundWhere({ applicationId, personId })})`;
+}
+
+// Marks one inbound text handled; the profile's "Mark handled" button calls this.
+// False when it was already handled or is not an inbound text.
 export async function markHandled(db: Db, messageId: string, userId: string, now: Date = new Date()): Promise<boolean> {
   const rows = await db
     .update(message)
