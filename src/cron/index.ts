@@ -3,7 +3,7 @@
 // Each pass will: send due messages, queue 24-hour reminders, write a heartbeat,
 // run the 3am Central pg_dump to R2 and send the 7am digest. Every step is wrapped
 // so one failure never stops the others, and failures go through notifyAdmin.
-// Only the heartbeat skeleton exists in stage 1.
+// Only this skeleton exists so far; the steps above are still to be wired in.
 
 async function main() {
   const startedAt = new Date();
