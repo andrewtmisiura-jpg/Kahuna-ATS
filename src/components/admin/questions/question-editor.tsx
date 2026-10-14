@@ -46,13 +46,19 @@ type Confirm =
 export function QuestionEditor({ forms, problems }: { forms: RoleForms; problems: DraftProblem[] }) {
   const router = useRouter();
   const { role, published, draft, history, available } = forms;
-  const [tab, setTab] = useState<Tab>(draft || !published ? "draft" : "published");
-  const [previewSource, setPreviewSource] = useState<"draft" | "published">(draft ? "draft" : "published");
+  // Tab and preview source follow the data until the person picks one, so starting
+  // a draft or publishing it lands on the sensible tab without a reload.
+  const [tabChoice, setTab] = useState<Tab | null>(null);
+  const tab: Tab = tabChoice ?? (draft || !published ? "draft" : "published");
+  const [previewChoice, setPreviewSource] = useState<"draft" | "published" | null>(null);
+  const previewSource = previewChoice && (previewChoice === "draft" ? draft : published) ? previewChoice : draft ? "draft" : "published";
   const [sectionDialog, setSectionDialog] = useState<{ open: boolean; section: FormSection | null }>({ open: false, section: null });
   const [questionMode, setQuestionMode] = useState<QuestionDialogMode | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  // Bumped when a quick action fails, so optimistic controls fall back to the server's state.
+  const [epoch, setEpoch] = useState(0);
   const [pending, startTransition] = useTransition();
 
   // Quick actions (move, remove, toggle) with no dialog of their own.
@@ -60,7 +66,10 @@ export function QuestionEditor({ forms, problems }: { forms: RoleForms; problems
     setBanner(null);
     startTransition(async () => {
       const result = await run();
-      if (!result.ok) setBanner(result.message);
+      if (!result.ok) {
+        setBanner(result.message);
+        setEpoch((n) => n + 1);
+      }
       router.refresh();
     });
   }
@@ -143,6 +152,7 @@ export function QuestionEditor({ forms, problems }: { forms: RoleForms; problems
                   first={index === 0}
                   last={index === draft.sections.length - 1}
                   pending={pending}
+                  epoch={epoch}
                   available={available}
                   onRename={() => setSectionDialog({ open: true, section })}
                   onMove={(direction) => act(() => moveSectionAction({ ...draftArgs, sectionKey: section.key, direction }))}
@@ -161,6 +171,7 @@ export function QuestionEditor({ forms, problems }: { forms: RoleForms; problems
               <OrphanedItems
                 draft={draft}
                 pending={pending}
+                epoch={epoch}
                 onEdit={(item) => setQuestionMode({ kind: "edit", item })}
                 onRemoveQuestion={(item) => setConfirm({ kind: "remove_question", item })}
               />
@@ -374,6 +385,7 @@ function SectionCard({
   first,
   last,
   pending,
+  epoch,
   available,
   onRename,
   onMove,
@@ -390,6 +402,7 @@ function SectionCard({
   first: boolean;
   last: boolean;
   pending: boolean;
+  epoch: number;
   available: RoleForms["available"];
   onRename: () => void;
   onMove: (direction: "up" | "down") => void;
@@ -445,6 +458,7 @@ function SectionCard({
                 first={index === 0}
                 last={index === items.length - 1}
                 pending={pending}
+                epoch={epoch}
                 onEdit={() => onEdit(item)}
                 onMove={(direction) => onMoveQuestion(item, direction)}
                 onRemove={() => onRemoveQuestion(item)}
@@ -491,6 +505,7 @@ function QuestionRow({
   first,
   last,
   pending,
+  epoch,
   onEdit,
   onMove,
   onRemove,
@@ -500,6 +515,7 @@ function QuestionRow({
   first: boolean;
   last: boolean;
   pending: boolean;
+  epoch: number;
   onEdit: () => void;
   onMove?: (direction: "up" | "down") => void;
   onRemove: () => void;
@@ -553,11 +569,27 @@ function QuestionRow({
             <Trash2 />
           </Button>
         </div>
-        {onToggleAi ? (
-          <Checkbox label="Never to AI" checked={item.aiNeverSend} disabled={pending} onChange={(e) => onToggleAi(e.target.checked)} className="text-xs" />
-        ) : null}
+        {onToggleAi ? <AiNeverSendToggle key={`${item.questionId}:${item.aiNeverSend}:${epoch}`} value={item.aiNeverSend} pending={pending} onChange={onToggleAi} /> : null}
       </div>
     </li>
+  );
+}
+
+// Flips at once and is saved behind the scenes; the key above remounts it with
+// the server's value after a refresh, so a failed save shows the real state.
+function AiNeverSendToggle({ value, pending, onChange }: { value: boolean; pending: boolean; onChange: (value: boolean) => void }) {
+  const [checked, setChecked] = useState(value);
+  return (
+    <Checkbox
+      label="Never to AI"
+      checked={checked}
+      disabled={pending}
+      onChange={(e) => {
+        setChecked(e.target.checked);
+        onChange(e.target.checked);
+      }}
+      className="text-xs"
+    />
   );
 }
 
@@ -566,11 +598,13 @@ function QuestionRow({
 function OrphanedItems({
   draft,
   pending,
+  epoch,
   onEdit,
   onRemoveQuestion,
 }: {
   draft: FormSnapshot;
   pending: boolean;
+  epoch: number;
   onEdit: (item: EditorItem) => void;
   onRemoveQuestion: (item: EditorItem) => void;
 }) {
@@ -585,7 +619,16 @@ function OrphanedItems({
       <CardContent>
         <ol className="divide-y rounded-md border">
           {orphaned.map((item) => (
-            <QuestionRow key={item.questionVersionId} item={item} first last pending={pending} onEdit={() => onEdit(item)} onRemove={() => onRemoveQuestion(item)} />
+            <QuestionRow
+              key={item.questionVersionId}
+              item={item}
+              first
+              last
+              pending={pending}
+              epoch={epoch}
+              onEdit={() => onEdit(item)}
+              onRemove={() => onRemoveQuestion(item)}
+            />
           ))}
         </ol>
       </CardContent>
