@@ -207,9 +207,9 @@ describe("keys", () => {
         options: [...v2!.options!.slice(0, 4).map((o) => ({ key: o.key, label: o.label })), { label: "Depends on the day" }],
         actor: actor(),
       });
-      // v2 was never published, so this edit landed in place.
-      expect(v3.outcome).toBe("edited_in_place");
-      expect(v3.questionVersionId).toBe(v2!.id);
+      // v2 was never published and nothing answered it, so the key comes straight
+      // back and the version is unchanged (an in-place edit, not a new version).
+      expect(v3).toEqual({ outcome: "unchanged", questionVersionId: v2!.id });
 
       // Publish v2 (the draft), then reword again: a removed key that comes back as a new label gets a fresh key.
       await publishForm(tx, { formVersionId: draft.id, changeReason: "Option wording test", actor: actor() });
@@ -361,17 +361,9 @@ describe("reworded or new", () => {
         }),
         "type_change_needs_new_question",
       );
-      await expectEditorError(
-        editQuestion(tx, {
-          formVersionId: draft.id,
-          questionVersionId: item.questionVersionId,
-          type: "date",
-          prompt: item.prompt,
-          lineage: "reworded",
-          actor: actor(),
-        }),
-        "nothing_changed",
-      );
+      // The same wording back is not a change, so no choice is needed.
+      const same = await editQuestion(tx, { formVersionId: draft.id, questionVersionId: item.questionVersionId, type: "date", prompt: item.prompt, actor: actor() });
+      expect(same).toEqual({ outcome: "unchanged", questionVersionId: item.questionVersionId });
     });
   });
 

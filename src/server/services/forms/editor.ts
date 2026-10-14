@@ -17,6 +17,7 @@ import {
 import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "../actor";
 import { writeAudit } from "../audit";
+import { isValidKey, slugKey, uniqueKey } from "./keys";
 
 // The question editor's draft rules (DATA_MODEL.md: question, question_version,
 // form_version, form_item, "Report keys never change once used").
@@ -53,7 +54,6 @@ export type FormEditorErrorCode =
   | "option_label_required"
   | "lineage_choice_required"
   | "type_change_needs_new_question"
-  | "nothing_changed"
   | "empty_form"
   | "duplicate_lineage"
   | "change_reason_required"
@@ -143,36 +143,7 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type FormVersionRow = typeof formVersion.$inferSelect;
 type QuestionVersionRow = typeof questionVersion.$inferSelect;
 
-const KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
-
-export function isValidKey(value: string) {
-  return KEY_PATTERN.test(value);
-}
-
-// "What is the highest you have worked on a ladder?" -> "what_is_the_highest_you_have"
-export function slugKey(text: string, maxLength = 40): string {
-  const slug = text
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-  if (!slug) return "";
-  if (slug.length <= maxLength) return slug.replace(/^[0-9]+/, (digits) => `n${digits}`);
-  const cut = slug.slice(0, maxLength);
-  const atWord = cut.lastIndexOf("_");
-  return (atWord > 8 ? cut.slice(0, atWord) : cut).replace(/^[0-9]+/, (digits) => `n${digits}`);
-}
-
-// A key that is not in `taken`: the base, else base_2, base_3 and so on.
-export function uniqueKey(base: string, taken: ReadonlySet<string>, fallback = "item"): string {
-  const root = base || fallback;
-  if (!taken.has(root)) return root;
-  for (let n = 2; ; n++) {
-    const candidate = `${root}_${n}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
+export { isValidKey, slugKey, uniqueKey } from "./keys";
 
 function isChoice(type: QuestionType) {
   return type === "single_choice" || type === "multi_choice";
@@ -844,6 +815,7 @@ export type EditQuestionInput = QuestionContent & {
 };
 
 export type EditQuestionResult =
+  | { outcome: "unchanged"; questionVersionId: string }
   | { outcome: "edited_in_place"; questionVersionId: string }
   | { outcome: "reworded"; questionVersionId: string; version: number }
   | { outcome: "new_question"; questionId: string; questionVersionId: string; key: string };
@@ -868,7 +840,7 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
       const usedKeys = await lineageOptionKeys(tx, lineage.id);
       for (const option of version.options ?? []) usedKeys.delete(option.key);
       const content = cleanContent(input, version.options, usedKeys);
-      if (sameContent(content, version)) return { outcome: "edited_in_place", questionVersionId: version.id };
+      if (sameContent(content, version)) return { outcome: "unchanged", questionVersionId: version.id };
       await tx.update(questionVersion).set(content).where(eq(questionVersion.id, version.id));
       await tx
         .update(formItem)
@@ -947,6 +919,12 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
       return { outcome: "new_question", questionId, questionVersionId, key };
     }
 
+    // Published: the same wording back is not a change, whatever the lineage choice.
+    const usedKeys = await lineageOptionKeys(tx, lineage.id);
+    const content = cleanContent(input, version.options, usedKeys);
+    if (sameContent(content, version) && !input.meaningChanged) {
+      return { outcome: "unchanged", questionVersionId: version.id };
+    }
     if (input.lineage !== "reworded") {
       throw new FormEditorError(
         "lineage_choice_required",
@@ -958,11 +936,6 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
         from: version.type,
         to: input.type,
       });
-    }
-    const usedKeys = await lineageOptionKeys(tx, lineage.id);
-    const content = cleanContent(input, version.options, usedKeys);
-    if (sameContent(content, version) && !input.meaningChanged) {
-      throw new FormEditorError("nothing_changed", "Nothing changed");
     }
     const [latest] = await tx
       .select({ version: questionVersion.version })
