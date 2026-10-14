@@ -33,6 +33,12 @@ export default defineConfig({
       name: "phone",
       use: { ...devices["Pixel 7"] },
     },
+    {
+      // The kanban board is a desktop screen; only its spec runs here.
+      name: "desktop",
+      testMatch: /board\.spec\.ts$/,
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
   webServer: {
     command: `pnpm dev --port ${port}`,
