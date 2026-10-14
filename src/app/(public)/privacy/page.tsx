@@ -1,13 +1,13 @@
-export const metadata = { title: "Privacy policy" };
+import { LegalArticle, LegalMissing } from "@/components/applicant/legal-article";
+import { db } from "@/db";
+import { currentLegalText, renderMarkdown } from "@/server/services/legal";
 
-export default function PrivacyPage() {
-  return (
-    <article className="space-y-3">
-      <h1 className="text-2xl font-semibold tracking-tight">Privacy policy</h1>
-      <p className="text-muted-foreground">
-        Draft for owner approval. The published version will be served from the versioned
-        legal text in the database.
-      </p>
-    </article>
-  );
+export const metadata = { title: "Privacy policy" };
+export const dynamic = "force-dynamic";
+
+// Served from the current published privacy_policy version.
+export default async function PrivacyPage() {
+  const text = await currentLegalText(db, "privacy_policy");
+  if (!text) return <LegalMissing title="Privacy policy" />;
+  return <LegalArticle html={renderMarkdown(text.body)} />;
 }

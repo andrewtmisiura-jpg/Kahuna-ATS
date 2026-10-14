@@ -1,13 +1,13 @@
-export const metadata = { title: "SMS terms" };
+import { LegalArticle, LegalMissing } from "@/components/applicant/legal-article";
+import { db } from "@/db";
+import { currentLegalText, renderMarkdown } from "@/server/services/legal";
 
-export default function SmsTermsPage() {
-  return (
-    <article className="space-y-3">
-      <h1 className="text-2xl font-semibold tracking-tight">SMS terms</h1>
-      <p className="text-muted-foreground">
-        Draft for owner approval. The published version will be served from the versioned
-        legal text in the database.
-      </p>
-    </article>
-  );
+export const metadata = { title: "SMS terms" };
+export const dynamic = "force-dynamic";
+
+// Served from the current published sms_terms version.
+export default async function SmsTermsPage() {
+  const text = await currentLegalText(db, "sms_terms");
+  if (!text) return <LegalMissing title="SMS terms" />;
+  return <LegalArticle html={renderMarkdown(text.body)} />;
 }
