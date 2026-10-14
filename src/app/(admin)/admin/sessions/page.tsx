@@ -1,28 +1,32 @@
+import { pageAccess } from "@/components/admin/settings/page-access";
+import { NewSessionButton, SessionsTable } from "@/components/admin/sessions/sessions-table";
 import { PageHeader } from "@/components/admin/page-header";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { db } from "@/db";
+import { listSessionOpenings, listSessions } from "@/server/services/config/sessions";
 
-export default function SessionsPage() {
+export const metadata = { title: "Group sessions" };
+
+// Group interview sessions: each gets its own QR code and shows on the applicants
+// who scanned it. Admins and Hiring Managers.
+export default async function SessionsPage() {
+  const access = await pageAccess(["admin", "hiring_manager"]);
+  if (!access.ok) {
+    return (
+      <div>
+        <PageHeader title="Group sessions" />
+        {access.view}
+      </div>
+    );
+  }
+  const [rows, openings] = await Promise.all([listSessions(db), listSessionOpenings(db)]);
+  const openingOptions = openings.map((o) => ({ id: o.id, name: o.name, roleName: o.roleName, status: o.status }));
   return (
     <div>
       <PageHeader title="Group sessions" description="Each session gets its own QR code and shows on the applicants who scanned it.">
-        <Button size="sm" disabled>New session</Button>
+        <NewSessionButton openings={openingOptions} />
       </PageHeader>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Date</TableHead>
-            <TableHead>Location</TableHead>
-            <TableHead>Invited</TableHead>
-            <TableHead>Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">No sessions yet.</TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
+      <SessionsTable rows={rows} />
+      <p className="mt-4 text-xs text-muted-foreground">Applied shows submitted / started applications attributed to the session.</p>
     </div>
   );
 }
