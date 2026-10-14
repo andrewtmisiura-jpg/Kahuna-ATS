@@ -19,6 +19,8 @@
     "db:seed": "tsx src/db/seed/run.ts",
     "user:add-admin": "tsx src/cli/add-admin.ts",
     "legal:publish": "tsx src/cli/legal-publish.ts",
+    "quo:connect": "tsx src/cli/quo-connect.ts connect",
+    "quo:webhook": "tsx src/cli/quo-connect.ts webhook",
     "db:local:init": "bash scripts/db-local.sh init",
     "db:local:start": "bash scripts/db-local.sh start",
     "db:local:stop": "bash scripts/db-local.sh stop",
@@ -26,6 +28,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.134.0",
+    "@aws-sdk/client-s3": "3.1152.0",
     "@hookform/resolvers": "5.9.1",
     "better-auth": "1.7.8",
     "class-variance-authority": "0.7.1",
