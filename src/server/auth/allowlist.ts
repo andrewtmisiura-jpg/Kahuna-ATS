@@ -1,4 +1,6 @@
 import type { BetterAuthOptions } from "better-auth";
+import { db } from "@/db";
+import { checkGoogleSignIn, normalizeEmail, recordGoogleSignIn } from "@/server/services/users";
 
 type ValidateUserInfo = NonNullable<NonNullable<BetterAuthOptions["user"]>["validateUserInfo"]>;
 type SessionCreateBefore = NonNullable<
@@ -11,7 +13,7 @@ export const SIGN_IN_REFUSED = "Ask an admin to add you";
 // Better Auth calls this before create-user, link-account and every Google sign-in.
 // Returning nothing admits the identity; returning { error } refuses it.
 export const validateAllowlistedUser: ValidateUserInfo = async ({ user, source }) => {
-  const email = user.email?.trim().toLowerCase();
+  const email = user.email ? normalizeEmail(user.email) : "";
   if (!email) {
     return { error: "email_required", errorDescription: SIGN_IN_REFUSED };
   }
@@ -20,18 +22,36 @@ export const validateAllowlistedUser: ValidateUserInfo = async ({ user, source }
   if (source.action === "create-user") {
     return { error: "not_allowlisted", errorDescription: SIGN_IN_REFUSED };
   }
+  if (source.method !== "oauth" || source.oauth?.providerId !== "google") {
+    return { error: "google_only", errorDescription: "Sign in with Google" };
+  }
 
-  // TODO(stage 2): with the app_user table in place,
-  // - refuse unless an app_user row with this email exists and status is active,
-  // - refuse unless Google reported email_verified,
-  // - bind google_sub on first sign-in and refuse a later sign-in with a different sub,
-  // - stamp last_sign_in_at.
-  return undefined;
+  const profile = source.oauth.profile ?? {};
+  const googleSub = typeof profile.sub === "string" ? profile.sub : undefined;
+  // Better Auth maps Google's email_verified claim onto user.emailVerified.
+  const emailVerified = user.emailVerified === true || profile.email_verified === true;
+
+  const result = await checkGoogleSignIn(db, { email, emailVerified, googleSub });
+  switch (result) {
+    case "ok":
+      return undefined;
+    case "email_not_verified":
+      return { error: "email_not_verified", errorDescription: "Your Google email is not verified" };
+    case "google_sub_mismatch":
+      return { error: "google_account_mismatch", errorDescription: "This email is bound to a different Google account" };
+    default:
+      return { error: result, errorDescription: SIGN_IN_REFUSED };
+  }
 };
 
-// Runs before a database session row is written. Stage 2 refuses disabled users here
-// as well, so a disabled account can never obtain a fresh session.
-export const refuseDisabledUserSession: SessionCreateBefore = async () => {
-  // TODO(stage 2): load app_user by session.userId and return false when status is disabled.
+// Runs before a database session row is written, so a disabled account can never
+// obtain a fresh session; also binds google_sub on the first sign-in and stamps
+// last_sign_in_at. Returning false aborts the sign-in.
+export const beforeSessionCreate: SessionCreateBefore = async (session) => {
+  const result = await recordGoogleSignIn(db, session.userId);
+  if (result !== "ok") {
+    console.warn(`[auth] session refused for user ${session.userId}: ${result}`);
+    return false;
+  }
   return undefined;
 };

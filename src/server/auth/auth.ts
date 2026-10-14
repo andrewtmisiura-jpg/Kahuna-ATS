@@ -3,10 +3,19 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { env } from "@/config/env";
 import { db } from "@/db";
-import * as schema from "@/db/schema";
-import { refuseDisabledUserSession, validateAllowlistedUser } from "./allowlist";
+import { appUser, authAccount, authSession, authVerification } from "@/db/schema";
+import { uuidv7 } from "@/lib/uuid";
+import { beforeSessionCreate, validateAllowlistedUser } from "./allowlist";
 
 const SEVEN_DAYS = 60 * 60 * 24 * 7;
+
+// Better Auth addresses tables by model name; these are the DATA_MODEL.md names.
+const authSchema = {
+  app_user: appUser,
+  auth_session: authSession,
+  auth_account: authAccount,
+  auth_verification: authVerification,
+};
 
 export function isGoogleSignInConfigured() {
   const config = env();
@@ -29,11 +38,13 @@ function createAuth() {
     appName: "Tidepool",
     baseURL: config.BETTER_AUTH_URL ?? config.PUBLIC_BASE_URL,
     secret: config.BETTER_AUTH_SECRET,
-    database: drizzleAdapter(db, { provider: "pg", schema }),
+    database: drizzleAdapter(db, { provider: "pg", schema: authSchema }),
     socialProviders,
+    advanced: {
+      // Every table's primary key is an app-generated UUIDv7, the auth tables included.
+      database: { generateId: () => uuidv7() },
+    },
 
-    // Model and field names follow DATA_MODEL.md. The Drizzle tables land in stage 2 and
-    // must export these names from src/db/schema with the extra user columns below.
     user: {
       modelName: "app_user",
       additionalFields: {
@@ -55,12 +66,13 @@ function createAuth() {
     },
     account: {
       modelName: "auth_account",
-      // An Admin creates the app_user row first; the first Google sign-in links to it.
-      accountLinking: { enabled: true, trustedProviders: ["google"] },
+      // An Admin creates the app_user row first (email_verified false); the first Google
+      // sign-in links to it. The allowlist hook checks Google's own email_verified claim.
+      accountLinking: { enabled: true, trustedProviders: ["google"], requireLocalEmailVerified: false },
     },
     verification: { modelName: "auth_verification" },
     databaseHooks: {
-      session: { create: { before: refuseDisabledUserSession } },
+      session: { create: { before: beforeSessionCreate } },
     },
     plugins: [nextCookies()],
   });
