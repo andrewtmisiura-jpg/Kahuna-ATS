@@ -15,16 +15,17 @@ export const ownerInput = {
     legalName: draft("Kahuna Window Cleaning (confirm the legal name on the IRS EIN letter)"),
     websiteUrl: null as string | null,
     // On the domain Resend already verifies for REEF or Typhoon.
-    emailFromAddress: null as string | null,
-    // hiring@, any address all hiring staff read.
-    replyToAddress: null as string | null,
+    emailFromAddress: "hiring@kahunawindowcleaning.com" as string | null,
+    // Where applicant replies go: Brea's inbox (owner, Oct 15).
+    replyToAddress: "lavignebreanna1@gmail.com" as string | null,
     hiringEmail: null as string | null,
   },
   snow: {
     // Launch date; the opening is open from the seed through go-live.
     opensOn: "2026-10-23",
-    payText: draft("snow pay rate or range, approved by the owner on Oct 14"),
-    benefitsText: draft("snow benefits text, approved by the owner on Oct 14"),
+    payText: "Starts at $20 an hour",
+    // No benefits listed (owner, Oct 15); the landing page hides the line when null.
+    benefitsText: null as string | null,
     seasonStartOn: null as string | null,
     seasonEndOn: null as string | null,
     targetHeadcount: null as number | null,
