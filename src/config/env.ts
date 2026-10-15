@@ -11,7 +11,7 @@ export function loadDotEnv() {
   }
 }
 
-const envSchema = z.object({
+export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().startsWith("postgres", "DATABASE_URL must be a postgres:// URL"),
   PUBLIC_BASE_URL: z.string().default("http://localhost:3000"),
@@ -22,7 +22,13 @@ const envSchema = z.object({
   // Development-only sign-in bypass. Ignored whenever NODE_ENV is production.
   DEV_AUTH_EMAIL: z.email().optional(),
   // The first Admin account, created by `pnpm db:seed` (which fails without it).
-  ADMIN_EMAIL: z.email().optional(),
+  // One email, or several separated by commas (see db:seed).
+  ADMIN_EMAIL: z
+    .string()
+    .refine((value) => value.split(",").every((email) => z.email().safeParse(email.trim()).success), {
+      message: "Invalid email address in the comma-separated list",
+    })
+    .optional(),
   // Message providers: "live" uses Quo and Resend, "sink" records sends without
   // sending. Defaults to live in production and sink everywhere else.
   MESSAGE_PROVIDERS: z.enum(["live", "sink"]).optional(),
