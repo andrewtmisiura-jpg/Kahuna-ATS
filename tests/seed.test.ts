@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
 import { seedPhase1 } from "@/db/seed";
 import { TEST_ADMIN_EMAIL } from "./helpers/fixtures";
+import { withRollback } from "./helpers/db";
 
 const SEEDED_TABLES = [
   "employer",
@@ -114,5 +115,20 @@ describe("db:seed", () => {
 
     const admin = await db.execute<{ email: string; role: string; status: string }>(raw`select email, role, status from app_user`);
     expect(admin[0]).toEqual({ email: TEST_ADMIN_EMAIL, role: "admin", status: "active" });
+  });
+  it("accepts several admin emails and never promotes an existing account", async () => {
+    await withRollback(db, async (tx) => {
+      await tx.execute(raw`update app_user set role = 'hiring_manager' where email = ${TEST_ADMIN_EMAIL}`);
+      await seedPhase1(tx, { adminEmail: ` ${TEST_ADMIN_EMAIL} , second.admin@example.com ` });
+      const rows = await tx.execute<{ email: string; role: string }>(
+        raw`select email, role from app_user where email in (${TEST_ADMIN_EMAIL}, 'second.admin@example.com') order by email`,
+      );
+      expect(rows.map((r) => [r.email, r.role]).sort()).toEqual(
+        [
+          [TEST_ADMIN_EMAIL, "hiring_manager"],
+          ["second.admin@example.com", "admin"],
+        ].sort(),
+      );
+    });
   });
 });

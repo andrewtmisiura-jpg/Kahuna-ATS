@@ -75,8 +75,13 @@ export const LAUNCH_ENTRY_CODES = {
 } as const;
 
 export async function seedPhase1(db: Db, options: SeedOptions): Promise<SeedReport> {
-  const adminEmail = options.adminEmail?.trim();
-  if (!adminEmail) {
+  // ADMIN_EMAIL may list several emails separated by commas. Each becomes an Admin
+  // only if it has no account yet; an existing account is never promoted or re-enabled.
+  const adminEmails = (options.adminEmail ?? "")
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean);
+  if (adminEmails.length === 0) {
     throw new Error("ADMIN_EMAIL is required: the seed creates the first Admin account from it");
   }
 
@@ -89,8 +94,10 @@ export async function seedPhase1(db: Db, options: SeedOptions): Promise<SeedRepo
   await db.transaction(async (tx) => {
     const employerId = await seedEmployer(tx, bump);
 
-    const admin = await ensureAdminUser(tx, adminEmail);
-    if (admin.created) bump("app_user");
+    for (const email of adminEmails) {
+      const admin = await ensureAdminUser(tx, email);
+      if (admin.created) bump("app_user");
+    }
 
     const roleIds = {} as Record<RoleKey, string>;
     for (const def of seedRoles) {
