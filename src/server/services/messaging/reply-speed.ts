@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, notInArray, or } from "drizzle-orm";
 import type { Db } from "@/db";
 import { message } from "@/db/schema";
 import { classifyKeyword } from "./inbound";
@@ -6,11 +6,13 @@ import { classifyKeyword } from "./inbound";
 // Text reply speed, a signal the owner expects to predict retention better than
 // any answer (DATA_MODEL.md, "Text reply speed"). For each inbound text a person
 // sends, the minutes since our most recent outbound message to them (text or
-// email) that was actually sent before it. Keyword texts (STOP, START, HELP and
-// the other words the inbound service recognises) are ignored, and so is an
-// inbound text with no earlier outbound message. Email replies go to the hiring
-// inbox, not Tidepool, so they cannot be counted. Per person, across their
-// applications. The figure is the median, with the number of replies behind it.
+// email) that was actually sent before it and did not fail. Keyword texts (STOP,
+// START, HELP and the other words the inbound service recognises) are ignored, and
+// so is the automatic HELP reply we send back, so the clock is not reset by a
+// message nobody chose to send. An inbound text with no earlier outbound message
+// is ignored too. Email replies go to the hiring inbox, not Tidepool, so they
+// cannot be counted. Per person, across their applications. The figure is the
+// median, with the number of replies behind it.
 
 export type ReplySpeed = {
   // Null when there are no replies to measure. Rounded to one decimal.
@@ -26,6 +28,9 @@ export type ReplyMessage = {
 };
 
 export const NO_REPLIES: ReplySpeed = { medianMinutes: null, replies: 0 };
+
+// Outbound statuses that mean the message never reached the person.
+const FAILED_STATUSES = ["failed", "undelivered"] as const;
 
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -57,7 +62,11 @@ export function computeReplySpeed(messages: readonly ReplyMessage[]): ReplySpeed
 }
 
 // Outbound messages count from when they were sent; queued, suppressed and failed
-// ones never reached the person. Inbound texts count from when they arrived.
+// ones never reached the person. A text Quo accepted keeps its sent_at when the
+// carrier later reports it failed or undelivered, so those are left out by status
+// and failed_at. The automatic HELP reply (purpose help_reply) answers a keyword
+// text that is itself ignored, so it is left out too. Inbound texts count from
+// when they arrived.
 export async function replySpeedByPerson(db: Db, personIds: readonly string[]): Promise<Map<string, ReplySpeed>> {
   const result = new Map<string, ReplySpeed>();
   const ids = [...new Set(personIds)];
@@ -76,7 +85,13 @@ export async function replySpeedByPerson(db: Db, personIds: readonly string[]): 
       and(
         inArray(message.personId, ids),
         or(
-          and(eq(message.direction, "outbound"), isNotNull(message.sentAt)),
+          and(
+            eq(message.direction, "outbound"),
+            isNotNull(message.sentAt),
+            isNull(message.failedAt),
+            notInArray(message.status, FAILED_STATUSES),
+            or(isNull(message.purpose), ne(message.purpose, "help_reply")),
+          ),
           and(eq(message.direction, "inbound"), eq(message.channel, "sms")),
         ),
       ),

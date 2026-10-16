@@ -102,6 +102,48 @@ describe("replySpeedByPerson", () => {
     });
   });
 
+  it("leaves out texts that failed after they were sent and the automatic HELP reply", async () => {
+    await withRollback(db, async (tx) => {
+      const personId = await createPerson(tx);
+      const { applicationId } = await createApplication(tx, snow, personId);
+      const row = (values: Partial<typeof message.$inferInsert>) =>
+        tx.insert(message).values({
+          id: uuidv7(),
+          personId,
+          applicationId,
+          toAddress: "+16125550100",
+          fromAddress: "+17632922259",
+          provider: "sink",
+          triggeredByType: "system",
+          direction: "outbound",
+          channel: "sms",
+          status: "sent",
+          ...values,
+        });
+      const inbound = (minutes: number, body: string) =>
+        row({ direction: "inbound", status: "received", provider: "quo", body, createdAt: at(minutes) });
+
+      // An email at 0 reached them; a reminder text at 60 was accepted, then the
+      // carrier reported it undelivered. Their text at 90 answers the email.
+      await row({ channel: "email", provider: "resend", toAddress: "pat@example.test", createdAt: at(0), sentAt: at(0) });
+      await row({ status: "undelivered", createdAt: at(60), sentAt: at(60), failedAt: at(61) });
+      await inbound(90, "Got your email, thanks");
+      // A text at 200 marked failed by status alone is left out too.
+      await row({ createdAt: at(200), sentAt: at(200) });
+      await row({ status: "failed", createdAt: at(250), sentAt: at(250) });
+      await inbound(260, "Yes");
+      // HELP at 400 is ignored and so is the reply we send back at 401; the real
+      // answer at 421 is measured from the text at 380.
+      await row({ createdAt: at(380), sentAt: at(380) });
+      await inbound(400, "HELP");
+      await row({ purpose: "help_reply", createdAt: at(401), sentAt: at(401) });
+      await inbound(421, "Yes I'll be there");
+
+      // 90, 60 and 41 minutes.
+      expect((await replySpeedByPerson(tx, [personId])).get(personId)).toEqual({ medianMinutes: 60, replies: 3 });
+    });
+  });
+
   it("returns no replies for a person with no messages", async () => {
     const personId = await createPerson(db);
     expect((await replySpeedByPerson(db, [personId])).get(personId)).toEqual({ medianMinutes: null, replies: 0 });
