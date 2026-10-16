@@ -392,6 +392,128 @@ describe("reworded or new", () => {
   });
 });
 
+describe("staff guidance and the starting-word check", () => {
+  it("saves both on a new question and edits them in place while unpublished", async () => {
+    await withRollback(db, async (tx) => {
+      const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: actor() });
+      const added = await addQuestion(tx, {
+        formVersionId: draft.id,
+        sectionKey: "experience",
+        type: "long_text",
+        prompt: "Tell us about your best boss. Start your answer with the word 'Blue.'",
+        required: true,
+        staffGuidance: "  Pass or fail only.  ",
+        startsWithCheck: " blue ",
+        actor: actor(),
+      });
+      const [v1] = await tx.select().from(questionVersion).where(eq(questionVersion.id, added.questionVersionId));
+      expect(v1!.staffGuidance).toBe("Pass or fail only.");
+      expect(v1!.startsWithCheck).toBe("blue");
+
+      const edited = await editQuestion(tx, {
+        formVersionId: draft.id,
+        questionVersionId: added.questionVersionId,
+        type: "long_text",
+        prompt: v1!.prompt,
+        staffGuidance: "Did they start with Blue?",
+        startsWithCheck: null,
+        actor: actor(),
+      });
+      expect(edited.outcome).toBe("edited_in_place");
+      const [after] = await tx.select().from(questionVersion).where(eq(questionVersion.id, added.questionVersionId));
+      expect(after!.staffGuidance).toBe("Did they start with Blue?");
+      expect(after!.startsWithCheck).toBeNull();
+      const [audit] = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.entityId, added.questionId), eq(auditLog.action, "question.version_edit")));
+      expect(audit!.changes).toMatchObject({
+        staffGuidance: { from: "Pass or fail only.", to: "Did they start with Blue?" },
+        startsWithCheck: { from: "blue", to: null },
+      });
+    });
+  });
+
+  it("makes a new version of the same question when only the staff fields of a published question change", async () => {
+    await withRollback(db, async (tx) => {
+      const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: actor() });
+      const before = itemByKey(draft, "job1_employer");
+      const result = await editQuestion(tx, {
+        formVersionId: draft.id,
+        questionVersionId: before.questionVersionId,
+        type: before.type,
+        prompt: before.prompt,
+        help: before.help,
+        validation: before.validation,
+        staffGuidance: "A name is enough.",
+        startsWithCheck: "acme",
+        actor: actor(),
+      });
+      expect(result.outcome).toBe("reworded");
+      const after = await loadFormSnapshot(tx, draft.id);
+      const item = itemByKey(after!, "job1_employer");
+      expect(item.questionId).toBe(before.questionId);
+      expect(item.version).toBe(before.version + 1);
+      expect(item.prompt).toBe(before.prompt);
+      expect(item.meaningChanged).toBe(false);
+      expect(item.staffGuidance).toBe("A name is enough.");
+      expect(item.startsWithCheck).toBe("acme");
+
+      // Ticking "the meaning changed" is recorded on the version.
+      const again = await editQuestion(tx, {
+        formVersionId: draft.id,
+        questionVersionId: itemByKey(draft, "job1_months").questionVersionId,
+        type: "number",
+        prompt: itemByKey(draft, "job1_months").prompt,
+        help: itemByKey(draft, "job1_months").help,
+        validation: itemByKey(draft, "job1_months").validation,
+        staffGuidance: "Count months, not years.",
+        meaningChanged: true,
+        actor: actor(),
+      });
+      const [v2] = await tx.select().from(questionVersion).where(eq(questionVersion.id, again.questionVersionId));
+      expect(v2!.meaningChanged).toBe(true);
+      expect(v2!.staffGuidance).toBe("Count months, not years.");
+
+      // Leaving the fields out keeps them: the same wording back is unchanged.
+      const same = await editQuestion(tx, {
+        formVersionId: draft.id,
+        questionVersionId: result.questionVersionId,
+        type: before.type,
+        prompt: before.prompt,
+        help: before.help,
+        validation: before.validation,
+        actor: actor(),
+      });
+      expect(same.outcome).toBe("unchanged");
+    });
+  });
+
+  it("refuses a check on a non-text question and a check that is not one word", async () => {
+    await withRollback(db, async (tx) => {
+      const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: actor() });
+      await expectEditorError(
+        addQuestion(tx, { formVersionId: draft.id, sectionKey: "basics", type: "yes_no", prompt: "Yes?", required: false, startsWithCheck: "yes", actor: actor() }),
+        "starts_with_not_allowed",
+      );
+      await expectEditorError(
+        addQuestion(tx, { formVersionId: draft.id, sectionKey: "basics", type: "short_text", prompt: "Name?", required: false, startsWithCheck: "two words", actor: actor() }),
+        "invalid_starts_with",
+      );
+    });
+  });
+
+  it("adds a section under a given key and refuses a taken one", async () => {
+    await withRollback(db, async (tx) => {
+      const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: actor() });
+      const section = await addSection(tx, { formVersionId: draft.id, title: "How you work", key: "how_you_work", actor: actor() });
+      expect(section.key).toBe("how_you_work");
+      await expectEditorError(addSection(tx, { formVersionId: draft.id, title: "Again", key: "how_you_work", actor: actor() }), "key_in_use");
+      await expectEditorError(addSection(tx, { formVersionId: draft.id, title: "Bad", key: "Bad Key", actor: actor() }), "invalid_key");
+    });
+  });
+});
+
 describe("draft editing", () => {
   it("adds, renames, reorders and removes sections", async () => {
     await withRollback(db, async (tx) => {

@@ -44,6 +44,7 @@ export function QuestionFacts({ item }: { item: EditorItem }) {
         {item.required ? <Badge variant="secondary">Required</Badge> : null}
         {item.aiNeverSend ? <Badge variant="secondary">Never to AI</Badge> : null}
         {item.meaningChanged ? <Badge variant="outline">Meaning changed in v{item.version}</Badge> : null}
+        {item.startsWithCheck ? <Badge variant="outline">Must start with &quot;{item.startsWithCheck}&quot;</Badge> : null}
       </div>
       <p className="text-sm">{item.prompt}</p>
       {item.help ? <p className="text-xs text-muted-foreground">{item.help}</p> : null}
@@ -57,6 +58,18 @@ export function QuestionFacts({ item }: { item: EditorItem }) {
           Flags on the profile when the answer is {item.attentionValues.map((value) => `"${attentionLabel(item.type, value, item.options)}"`).join(" or ")}.
         </p>
       ) : null}
+      <StaffGuidanceNote guidance={item.staffGuidance} />
     </div>
+  );
+}
+
+// Staff-only notes, in the staff views of a form. The preview never shows them.
+export function StaffGuidanceNote({ guidance }: { guidance: string | null }) {
+  if (!guidance) return null;
+  return (
+    <p className="whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">What to look for (staff only): </span>
+      {guidance}
+    </p>
   );
 }

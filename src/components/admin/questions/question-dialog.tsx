@@ -10,15 +10,18 @@ import type { FormSection, QuestionType, QuestionValidation } from "@/db/schema"
 import { addQuestionAction, saveQuestionAction } from "@/server/actions/admin/questions";
 import type { EditorItem } from "@/server/services/forms/editor";
 import { slugKey } from "@/server/services/forms/keys";
+import { sameValidation } from "@/server/services/forms/validation";
 import { DoNotAskWarning } from "./do-not-ask-panel";
 import { Checkbox, ErrorText, Field, Notice, Radio, Textarea } from "./fields";
 import { isChoiceType, isTextType, TYPE_LABELS, TYPE_ORDER } from "./format";
 
 // Add a question or edit one. Editing a published wording asks whether it is
 // the same question reworded (a new version in the same lineage) or a new
-// question (a new lineage; the old one leaves the draft). Option keys are
-// generated once on the server and shown here as fixed labels. The form mounts
-// fresh for each question, so its state starts from that question.
+// question (a new lineage; the old one leaves the draft). Changing only the
+// staff-only fields (what to look for, the starting-word check) of a published
+// question makes a new version of the same question without asking. Option keys
+// are generated once on the server and shown here as fixed labels. The form
+// mounts fresh for each question, so its state starts from that question.
 
 export type QuestionDialogMode = { kind: "add"; sectionKey: string } | { kind: "edit"; item: EditorItem };
 
@@ -85,6 +88,8 @@ function QuestionForm({
   const [max, setMax] = useState(item?.validation?.max !== undefined ? String(item.validation.max) : "");
   const [integer, setInteger] = useState(!!item?.validation?.integer);
   const [maxLength, setMaxLength] = useState(item?.validation?.maxLength !== undefined ? String(item.validation.maxLength) : "");
+  const [staffGuidance, setStaffGuidance] = useState(item?.staffGuidance ?? "");
+  const [startsWith, setStartsWith] = useState(item?.startsWithCheck ?? "");
   const [required, setRequired] = useState(item?.required ?? true);
   const [attention, setAttention] = useState<string[]>(item?.attentionValues ?? []);
   const [sectionKey, setSectionKey] = useState(mode.kind === "add" ? mode.sectionKey : mode.item.sectionKey);
@@ -128,11 +133,17 @@ function QuestionForm({
     const before = JSON.stringify((item.options ?? []).map((o) => ({ key: o.key, label: o.label })));
     const after = JSON.stringify((optionPayload ?? []).map((o) => ({ key: o.key, label: o.label })));
     if (before !== after) return true;
-    return JSON.stringify(validation ?? null) !== JSON.stringify(item.validation ?? null);
+    return !sameValidation(validation, item.validation);
   }, [item, type, prompt, help, optionPayload, validation]);
+
+  const guidancePayload = staffGuidance.trim() || null;
+  const startsWithPayload = isTextType(type) ? startsWith.trim() || null : null;
+  const staffChanged = !!item && (guidancePayload !== (item.staffGuidance ?? null) || startsWithPayload !== (item.startsWithCheck ?? null));
 
   const typeChanged = !!item && type !== item.type;
   const askLineage = isEdit && published && wordingChanged;
+  // Only the staff-only fields changed: a new version of the same question.
+  const staffOnly = isEdit && published && !wordingChanged && staffChanged;
   const effectiveLineage: "reworded" | "new" = typeChanged ? "new" : lineage;
   const matchText = [prompt, help, ...options.map((o) => o.label)].join("\n");
   const suggestedKey = slugKey(prompt) || "question";
@@ -153,6 +164,8 @@ function QuestionForm({
         validation,
         required,
         attentionValues: attention,
+        staffGuidance: guidancePayload,
+        startsWithCheck: startsWithPayload,
       };
       const result =
         mode.kind === "add"
@@ -162,8 +175,8 @@ function QuestionForm({
               formVersionId,
               questionVersionId: mode.item.questionVersionId,
               sectionKey: sectionKey !== mode.item.sectionKey ? sectionKey : undefined,
-              lineage: askLineage ? effectiveLineage : undefined,
-              meaningChanged: askLineage && effectiveLineage === "reworded" ? meaningChanged : undefined,
+              lineage: askLineage ? effectiveLineage : staffOnly ? "reworded" : undefined,
+              meaningChanged: (askLineage && effectiveLineage === "reworded") || staffOnly ? meaningChanged : undefined,
               changeNote: changeNote.trim() || null,
               newKey: askLineage && effectiveLineage === "new" ? newKey.trim() || null : null,
               ...content,
@@ -305,6 +318,25 @@ function QuestionForm({
         </div>
       ) : null}
 
+      <div className="grid gap-4 rounded-md border border-dashed p-3">
+        <Field
+          label="What to look for, staff only"
+          htmlFor="q-guidance"
+          hint="Shown on the profile under the answer, folded away until staff open it. Never shown to applicants and never sent to AI."
+        >
+          <Textarea id="q-guidance" value={staffGuidance} onChange={(e) => setStaffGuidance(e.target.value)} maxLength={4000} className="min-h-16" />
+        </Field>
+        {isTextType(type) ? (
+          <Field
+            label="Answer must start with this word (optional)"
+            htmlFor="q-startswith"
+            hint="One word. The profile shows whether the answer starts with it, ignoring capitals and punctuation. Leave blank for no check."
+          >
+            <Input id="q-startswith" value={startsWith} onChange={(e) => setStartsWith(e.target.value)} maxLength={40} className="w-48" />
+          </Field>
+        ) : null}
+      </div>
+
       <Checkbox label="Required" hint="Checked when the applicant submits, not while they type." checked={required} onChange={(e) => setRequired(e.target.checked)} />
 
       {!isEdit ? (
@@ -360,6 +392,23 @@ function QuestionForm({
           ) : null}
           <Field label="Note for the record (optional)" htmlFor="q-note">
             <Input id="q-note" value={changeNote} onChange={(e) => setChangeNote(e.target.value)} maxLength={500} />
+          </Field>
+        </div>
+      ) : null}
+
+      {staffOnly && item ? (
+        <div className="grid gap-3 rounded-md border p-3">
+          <p className="text-sm">
+            Saving creates version {item.version + 1} of &quot;{item.key}&quot;, the same question with new notes for staff. Applicants see the same wording.
+          </p>
+          <Checkbox
+            label="The meaning changed"
+            hint="Tick this only if the change means answers should not be compared with earlier versions."
+            checked={meaningChanged}
+            onChange={(e) => setMeaningChanged(e.target.checked)}
+          />
+          <Field label="Note for the record (optional)" htmlFor="q-note-staff">
+            <Input id="q-note-staff" value={changeNote} onChange={(e) => setChangeNote(e.target.value)} maxLength={500} />
           </Field>
         </div>
       ) : null}

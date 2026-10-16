@@ -26,7 +26,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { DoNotAskPanel, hasDoNotAskMatch } from "./do-not-ask-panel";
 import { Checkbox, ErrorText, Notice, Warning } from "./fields";
 import { FormPreview } from "./form-preview";
-import { FormView } from "./form-view";
+import { FormView, StaffGuidanceNote } from "./form-view";
 import { attentionLabel, formatCentral, TYPE_LABELS } from "./format";
 import { PublishDialog } from "./publish-dialog";
 import { QuestionDialog, type QuestionDialogMode } from "./question-dialog";
@@ -191,6 +191,11 @@ export function QuestionEditor({ forms, problems }: { forms: RoleForms; problems
                   <p>
                     <span className="font-medium text-foreground">Flag this answer</span>: a warning chip on the profile and list when an applicant gives
                     that answer. Staff decide what it means; nothing happens automatically.
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">What to look for</span>: notes for staff, shown folded under the answer on
+                    the profile. Applicants never see them and they are never sent to AI. A starting-word check shows whether the answer began
+                    with the word the question asked for.
                   </p>
                   <p>
                     <span className="font-medium text-foreground">Key</span>: the name reports use for a question. It is set once and never changes.
@@ -535,6 +540,7 @@ function QuestionRow({
           {item.required ? <Badge variant="secondary">Required</Badge> : null}
           {item.aiNeverSend ? <Badge variant="secondary">Never to AI</Badge> : null}
           {item.meaningChanged ? <Badge variant="outline">Meaning changed</Badge> : null}
+          {item.startsWithCheck ? <Badge variant="outline">Must start with &quot;{item.startsWithCheck}&quot;</Badge> : null}
           {flagged ? (
             <Badge variant="outline" className="border-amber-400 text-amber-800 dark:text-amber-200">
               <TriangleAlert /> Check against do-not-ask
@@ -549,6 +555,7 @@ function QuestionRow({
             Flags when the answer is {item.attentionValues.map((value) => `"${attentionLabel(item.type, value, item.options)}"`).join(" or ")}.
           </p>
         ) : null}
+        <StaffGuidanceNote guidance={item.staffGuidance} />
       </div>
       <div className="flex flex-wrap items-center gap-2 md:flex-col md:items-end">
         <div className="flex gap-1">

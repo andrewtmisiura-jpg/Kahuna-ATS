@@ -18,6 +18,8 @@ import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "../actor";
 import { writeAudit } from "../audit";
 import { isValidKey, slugKey, uniqueKey } from "./keys";
+import { cleanStartsWithWord } from "./starts-with";
+import { sameValidation } from "./validation";
 
 // The question editor's draft rules (DATA_MODEL.md: question, question_version,
 // form_version, form_item, "Report keys never change once used").
@@ -57,7 +59,10 @@ export type FormEditorErrorCode =
   | "empty_form"
   | "duplicate_lineage"
   | "change_reason_required"
-  | "no_published_form";
+  | "no_published_form"
+  | "starts_with_not_allowed"
+  | "invalid_starts_with"
+  | "staff_guidance_too_long";
 
 export class FormEditorError extends Error {
   constructor(
@@ -83,6 +88,10 @@ export type EditorItem = {
   validation: QuestionValidation | null;
   meaningChanged: boolean;
   changeNote: string | null;
+  // Staff-only "What to look for" notes; never shown to applicants or sent to AI.
+  staffGuidance: string | null;
+  // "Answer must start with this word"; text questions only.
+  startsWithCheck: string | null;
   // Null while the version has only ever been in a draft.
   publishedAt: Date | null;
   sectionKey: string;
@@ -175,6 +184,8 @@ async function loadItems(db: Db, formVersionIds: string[]): Promise<Map<string, 
       validation: questionVersion.validation,
       meaningChanged: questionVersion.meaningChanged,
       changeNote: questionVersion.changeNote,
+      staffGuidance: questionVersion.staffGuidance,
+      startsWithCheck: questionVersion.startsWithCheck,
       publishedAt: questionVersion.publishedAt,
       sectionKey: formItem.sectionKey,
       sortOrder: formItem.sortOrder,
@@ -474,16 +485,25 @@ async function saveSections(tx: Tx, draft: FormVersionRow, sections: FormSection
   await writeAudit(tx, { actor, action, entityType: "form_version", entityId: draft.id, changes });
 }
 
+// The key is made from the title unless one is given (the one-time content
+// changes in src/db/changes name theirs); a given key must be free.
 export async function addSection(
   db: Db,
-  input: { formVersionId: string; title: string; intro?: string | null; actor: Actor },
+  input: { formVersionId: string; title: string; intro?: string | null; key?: string | null; actor: Actor },
 ): Promise<FormSection> {
   const title = input.title.trim();
   if (!title) throw new FormEditorError("section_title_required", "Give the section a title");
+  const wanted = input.key?.trim() ?? "";
+  if (wanted && !isValidKey(wanted)) {
+    throw new FormEditorError("invalid_key", "A key is lowercase letters, digits and underscores, starting with a letter");
+  }
   return db.transaction(async (tx) => {
     const draft = await lockDraft(tx, input.formVersionId);
     const taken = new Set(draft.sections.map((section) => section.key));
-    const section: FormSection = { key: uniqueKey(slugKey(title, 30), taken, "section"), title };
+    if (wanted && taken.has(wanted)) {
+      throw new FormEditorError("key_in_use", `The draft already has a section with the key ${wanted}`, { key: wanted });
+    }
+    const section: FormSection = { key: wanted || uniqueKey(slugKey(title, 30), taken, "section"), title };
     const intro = cleanText(input.intro);
     if (intro) section.intro = intro;
     await saveSections(tx, draft, [...draft.sections, section], input.actor, "form.section_add", { section });
@@ -567,6 +587,10 @@ export type QuestionContent = {
   help?: string | null;
   options?: OptionInput[] | null;
   validation?: QuestionValidation | null;
+  // Staff-only: never shown to applicants, never sent to AI.
+  staffGuidance?: string | null;
+  // One word the answer must start with; short and long text only.
+  startsWithCheck?: string | null;
 };
 
 type CleanContent = {
@@ -575,7 +599,11 @@ type CleanContent = {
   help: string | null;
   options: QuestionOption[] | null;
   validation: QuestionValidation | null;
+  staffGuidance: string | null;
+  startsWithCheck: string | null;
 };
+
+export const STAFF_GUIDANCE_MAX_LENGTH = 4000;
 
 // Validates the wording and settles option keys: existing keys (those in
 // `current`) are kept, new options get a slug key that no earlier version of the
@@ -614,7 +642,19 @@ function cleanContent(input: QuestionContent, current: QuestionOption[] | null, 
   }
 
   const validation = cleanValidation(input.type, input.validation ?? null);
-  return { type: input.type, prompt, help, options, validation };
+
+  const staffGuidance = cleanText(input.staffGuidance);
+  if (staffGuidance && staffGuidance.length > STAFF_GUIDANCE_MAX_LENGTH) {
+    throw new FormEditorError("staff_guidance_too_long", `Keep the notes for staff under ${STAFF_GUIDANCE_MAX_LENGTH} characters`);
+  }
+  const startsWithCheck = cleanStartsWithWord(input.startsWithCheck);
+  if (startsWithCheck === undefined) {
+    throw new FormEditorError("invalid_starts_with", "The answer check takes one word, with no spaces");
+  }
+  if (startsWithCheck && input.type !== "short_text" && input.type !== "long_text") {
+    throw new FormEditorError("starts_with_not_allowed", "Only short and long answers can have a starting-word check");
+  }
+  return { type: input.type, prompt, help, options, validation, staffGuidance, startsWithCheck };
 }
 
 function cleanValidation(type: QuestionType, validation: QuestionValidation | null): QuestionValidation | null {
@@ -727,7 +767,15 @@ export async function addQuestion(db: Db, input: AddQuestionInput): Promise<{ qu
       action: "question.create",
       entityType: "question",
       entityId: questionId,
-      changes: { formVersionId: draft.id, key, type: content.type, prompt: content.prompt, aiNeverSend: input.aiNeverSend ?? false },
+      changes: {
+        formVersionId: draft.id,
+        key,
+        type: content.type,
+        prompt: content.prompt,
+        aiNeverSend: input.aiNeverSend ?? false,
+        staffGuidance: content.staffGuidance,
+        startsWithCheck: content.startsWithCheck,
+      },
     });
     return { questionId, questionVersionId, key };
   });
@@ -820,26 +868,56 @@ export type EditQuestionResult =
   | { outcome: "reworded"; questionVersionId: string; version: number }
   | { outcome: "new_question"; questionId: string; questionVersionId: string; key: string };
 
-function sameContent(a: CleanContent, version: QuestionVersionRow) {
+// What the applicant sees: type, wording, help, choices and limits.
+function sameWording(a: CleanContent, version: QuestionVersionRow) {
   return (
     a.type === version.type &&
     a.prompt === version.prompt &&
     (a.help ?? null) === (version.help ?? null) &&
     JSON.stringify(a.options ?? null) === JSON.stringify(version.options ?? null) &&
-    JSON.stringify(a.validation ?? null) === JSON.stringify(version.validation ?? null)
+    sameValidation(a.validation, version.validation)
   );
+}
+
+// The wording plus the staff-only fields, which are part of the version too.
+function sameContent(a: CleanContent, version: QuestionVersionRow) {
+  return (
+    sameWording(a, version) &&
+    (a.staffGuidance ?? null) === (version.staffGuidance ?? null) &&
+    (a.startsWithCheck ?? null) === (version.startsWithCheck ?? null)
+  );
+}
+
+function staffFieldChanges(version: QuestionVersionRow, content: CleanContent) {
+  return {
+    staffGuidance: { from: version.staffGuidance, to: content.staffGuidance },
+    startsWithCheck: { from: version.startsWithCheck, to: content.startsWithCheck },
+  };
+}
+
+// A caller that leaves the staff-only fields out keeps what the version has, so
+// an edit that only knows about the wording never clears them. A check is
+// dropped when the new type is not a text type.
+function withStaffDefaults(input: QuestionContent, version: QuestionVersionRow): QuestionContent {
+  const textType = input.type === "short_text" || input.type === "long_text";
+  return {
+    ...input,
+    staffGuidance: input.staffGuidance === undefined ? version.staffGuidance : input.staffGuidance,
+    startsWithCheck: input.startsWithCheck === undefined ? (textType ? version.startsWithCheck : null) : input.startsWithCheck,
+  };
 }
 
 export async function editQuestion(db: Db, input: EditQuestionInput): Promise<EditQuestionResult> {
   return db.transaction(async (tx) => {
     const { draft, item, version, lineage } = await lockDraftItem(tx, input.formVersionId, input.questionVersionId);
+    const given = withStaffDefaults(input, version);
     const createdBy = input.actor.type === "staff" ? input.actor.userId : null;
 
     // Never published: nothing pins it, so the draft's own version changes in place.
     if (!version.publishedAt) {
       const usedKeys = await lineageOptionKeys(tx, lineage.id);
       for (const option of version.options ?? []) usedKeys.delete(option.key);
-      const content = cleanContent(input, version.options, usedKeys);
+      const content = cleanContent(given, version.options, usedKeys);
       if (sameContent(content, version)) return { outcome: "unchanged", questionVersionId: version.id };
       await tx.update(questionVersion).set(content).where(eq(questionVersion.id, version.id));
       await tx
@@ -859,13 +937,14 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
           type: { from: version.type, to: content.type },
           options: { from: version.options, to: content.options },
           validation: { from: version.validation, to: content.validation },
+          ...staffFieldChanges(version, content),
         },
       });
       return { outcome: "edited_in_place", questionVersionId: version.id };
     }
 
     if (input.lineage === "new") {
-      const content = cleanContent(input, null, new Set());
+      const content = cleanContent(given, null, new Set());
       const taken = await roleQuestionKeys(tx, draft.roleId);
       const wanted = input.newKey?.trim() ?? "";
       let key: string;
@@ -914,6 +993,8 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
           type: content.type,
           prompt: { from: version.prompt, to: content.prompt },
           aiNeverSend: lineage.aiNeverSend,
+          staffGuidance: content.staffGuidance,
+          startsWithCheck: content.startsWithCheck,
         },
       });
       return { outcome: "new_question", questionId, questionVersionId, key };
@@ -921,11 +1002,14 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
 
     // Published: the same wording back is not a change, whatever the lineage choice.
     const usedKeys = await lineageOptionKeys(tx, lineage.id);
-    const content = cleanContent(input, version.options, usedKeys);
+    const content = cleanContent(given, version.options, usedKeys);
     if (sameContent(content, version) && !input.meaningChanged) {
       return { outcome: "unchanged", questionVersionId: version.id };
     }
-    if (input.lineage !== "reworded") {
+    // A change to the staff-only fields alone (what to look for, the starting-word
+    // check) is the same question: it takes the reworded path without asking.
+    const lineageChoice = input.lineage ?? (sameWording(content, version) ? "reworded" : undefined);
+    if (lineageChoice !== "reworded") {
       throw new FormEditorError(
         "lineage_choice_required",
         "This wording has been published. Say whether it is the same question reworded or a new question",
@@ -978,6 +1062,7 @@ export async function editQuestion(db: Db, input: EditQuestionInput): Promise<Ed
         help: { from: version.help, to: content.help },
         options: { from: version.options, to: content.options },
         validation: { from: version.validation, to: content.validation },
+        ...staffFieldChanges(version, content),
       },
     });
     return { outcome: "reworded", questionVersionId, version: nextVersion };

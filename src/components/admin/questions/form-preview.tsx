@@ -3,7 +3,9 @@ import type { EditorItem, FormSnapshot } from "@/server/services/forms/editor";
 
 // A compact, read-only picture of the form as an applicant would see it on a
 // phone: one column, a card per section, a disabled control per question.
-// It shares nothing with the applicant pages on purpose.
+// It shares nothing with the applicant pages on purpose. The staff-only fields
+// (what to look for, the starting-word check) never appear here, as they never
+// appear to applicants.
 
 export function FormPreview({ form }: { form: FormSnapshot }) {
   const bySection = new Map<string, EditorItem[]>();

@@ -53,6 +53,9 @@ const contentSchema = z.object({
   help: text(2000).nullish(),
   options: z.array(optionSchema).max(50).nullish(),
   validation: validationSchema.nullish(),
+  // Staff-only "What to look for" notes and the one-word answer check.
+  staffGuidance: text(4000).nullish(),
+  startsWithCheck: text(40).nullish(),
 });
 
 const attentionSchema = z.array(z.string().trim().max(80)).max(50).nullish();
