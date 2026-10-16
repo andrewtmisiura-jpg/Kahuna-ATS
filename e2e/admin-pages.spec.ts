@@ -15,7 +15,7 @@ test.describe("admin shell", () => {
 
   test("settings index links to every settings screen", async ({ page }) => {
     await page.goto("/admin/settings");
-    for (const name of ["Openings", "Users", "Texting", "Entry codes", "Picklists"]) {
+    for (const name of ["Openings", "Users", "Texting", "Entry codes", "Picklists", "Roles and stages", "Message templates", "AI scoring"]) {
       await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
     }
   });

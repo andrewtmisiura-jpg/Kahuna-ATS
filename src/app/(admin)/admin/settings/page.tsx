@@ -9,6 +9,9 @@ const screens: { href: Route; title: string; description: string }[] = [
   { href: "/admin/settings/texting", title: "Texting", description: "On or off, help contact and the daily cap." },
   { href: "/admin/codes", title: "Entry codes", description: "Create, close and download QR codes." },
   { href: "/admin/settings/picklists", title: "Picklists", description: "Reasons and crews." },
+  { href: "/admin/settings/roles", title: "Roles and stages", description: "A new role from a template, and each role's stages." },
+  { href: "/admin/settings/templates", title: "Message templates", description: "The wording of every text and email, and the booking link." },
+  { href: "/admin/settings/scoring", title: "AI scoring", description: "Rubrics, Try it, the scoring mode per role and the AI disclosure." },
 ];
 
 export default function SettingsPage() {
