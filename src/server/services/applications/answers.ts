@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db";
 import {
@@ -132,7 +132,13 @@ export async function loadApplicationForm(db: Db, applicationId: string): Promis
   };
 }
 
+// Questions in form order: the section's place in form_version.sections, then
+// sort_order, which the question editor numbers within each section, then key.
+// The applicant form jumps to the first missing required answer in this order.
 async function loadFormQuestions(db: Db, formVersionId: string): Promise<FormQuestion[]> {
+  const [form] = await db.select({ sections: formVersion.sections }).from(formVersion).where(eq(formVersion.id, formVersionId));
+  const sectionIndex = new Map((form?.sections ?? []).map((section, index) => [section.key, index]));
+  const sectionAt = (key: string) => sectionIndex.get(key) ?? Number.MAX_SAFE_INTEGER;
   const rows = await db
     .select({
       questionVersionId: formItem.questionVersionId,
@@ -149,9 +155,10 @@ async function loadFormQuestions(db: Db, formVersionId: string): Promise<FormQue
     .from(formItem)
     .innerJoin(questionVersion, eq(questionVersion.id, formItem.questionVersionId))
     .innerJoin(question, eq(question.id, questionVersion.questionId))
-    .where(eq(formItem.formVersionId, formVersionId))
-    .orderBy(asc(formItem.sortOrder));
-  return rows;
+    .where(eq(formItem.formVersionId, formVersionId));
+  return rows.sort(
+    (a, b) => sectionAt(a.sectionKey) - sectionAt(b.sectionKey) || a.sortOrder - b.sortOrder || a.questionKey.localeCompare(b.questionKey),
+  );
 }
 
 // ---------------------------------------------------------------------------

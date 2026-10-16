@@ -11,14 +11,14 @@ import { appliedChange, application, appUser, auditLog, formVersion, role } from
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { staffActor } from "@/server/services/actor";
-import { loadApplicationForm, saveAnswer } from "@/server/services/applications/answers";
+import { AnswersError, loadApplicationForm, saveAnswer, submitApplication } from "@/server/services/applications/answers";
 import { loadProfile } from "@/server/services/applications/queries";
 import { createApplication } from "@/server/services/applications/transition";
 import { matchDoNotAsk } from "@/server/services/forms/do-not-ask";
 import { discardDraft, ensureDraft, loadFormSnapshot, removeQuestion } from "@/server/services/forms/editor";
 import { publishForm } from "@/server/services/forms/publish";
 import { withRollback } from "./helpers/db";
-import { createPerson, loadAdminId, loadSnow, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
+import { createPerson, loadAdminId, loadEmployer, loadSnow, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 
 // `pnpm db:changes` and its first change, the owner's five snow questions. Every
 // case runs inside a rolled-back transaction, so the shared test database keeps
@@ -247,6 +247,20 @@ describe("the snow behavioral questions change", () => {
       const form = await loadApplicationForm(tx, fresh);
       expect(form!.sections.at(-1)?.key).toBe("how_you_work");
       expect(form!.questions.filter((q) => q.sectionKey === "how_you_work").map((q) => q.questionKey)).toEqual(KEYS);
+      // Form order follows the sections, though the editor numbers sort_order within
+      // each one: Basics first, the owner's five last.
+      expect(form!.questions[0]!.sectionKey).toBe("basics");
+      expect(form!.questions.slice(-5).map((q) => q.questionKey)).toEqual(KEYS);
+      // Sending with nothing answered lists Basics first, so the form jumps there.
+      const refused = await submitApplication(tx, { applicationId: fresh, employerId: (await loadEmployer(tx)).id }).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refused).toBeInstanceOf(AnswersError);
+      const missing = (refused as AnswersError).details.missing as string[];
+      const sectionOf = new Map(form!.questions.map((q) => [q.questionVersionId, q.sectionKey]));
+      expect(sectionOf.get(missing[0]!)).toBe("basics");
+      expect(missing.slice(-5).map((id) => sectionOf.get(id))).toEqual(KEYS.map(() => "how_you_work"));
       // The applicant's copy of the form never carries the staff notes.
       expect(JSON.stringify(form)).not.toContain("Red flag");
       expect(JSON.stringify(form)).not.toContain("staffGuidance");
