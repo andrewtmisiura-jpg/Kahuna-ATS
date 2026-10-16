@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { updateTextingAction } from "@/server/actions/admin/settings";
 import type { TextingSettings } from "@/server/services/config/texting";
 import { CheckboxField, Field, Notice } from "./fields";
+import { QuoConnectionCard } from "./quo-connection-card";
 
 export function TextingForm({ settings }: { settings: TextingSettings }) {
   const router = useRouter();
@@ -50,11 +51,13 @@ export function TextingForm({ settings }: { settings: TextingSettings }) {
           ) : (
             <Notice tone="warning">
               Not connected to Quo yet: the phone number id is empty and no text can go out, whatever the switch below says. Once the Quo API
-              key is in Railway, run <code className="rounded bg-muted px-1">pnpm quo:connect</code> to look the number up and store its id.
+              key is in Railway, the next deploy looks the number up and stores its id (see Quo connection below).
             </Notice>
           )}
         </CardContent>
       </Card>
+
+      <QuoConnectionCard quo={settings.quo} />
 
       <Card>
         <CardHeader>

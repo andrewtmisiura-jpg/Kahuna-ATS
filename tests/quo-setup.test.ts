@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { db, sql } from "@/db";
 import { auditLog, employer, integrationSecret, message } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
+import { getTextingSettings } from "@/server/services/config/texting";
 import { QUO_WEBHOOK_SECRET_KEY, readIntegrationSecret, resetQuoWebhookSecretCache, storeIntegrationSecret } from "@/server/services/integration-secrets";
 import {
   describeQuoSetup,
@@ -300,6 +301,22 @@ describe("ensureQuoConnected: bad responses never throw", () => {
     expect(text).not.toContain(SECRET);
     expect(text).not.toContain("abcdefghijklmnopqrstuvwxyz0123");
     expect(text).toContain("2026-10-16");
+  });
+});
+
+describe("Settings > Texting", () => {
+  it("shows the number's last 4, whether the webhook is connected and the last result, never the secret", async () => {
+    const before = await getTextingSettings(db);
+    expect(before.quo).toMatchObject({ phoneIdLast4: null, webhookConnected: false, webhookSecretSource: null });
+
+    const quo = happyQuo();
+    const result = await ensureQuoConnected(db, options(quo.fetch, { now: new Date(Date.now() + 60_000) }));
+    const after = await getTextingSettings(db);
+    expect(after.quoConnected).toBe(true);
+    expect(after.quo).toMatchObject({ phoneIdLast4: "c123", webhookConnected: true, webhookSecretSource: "stored" });
+    expect(after.quo.lastSetup).toMatchObject({ at: result.at, phone: { status: "connected" }, webhook: { status: "created" } });
+    expect(JSON.stringify(after)).not.toContain(SECRET);
+    expect(JSON.stringify(after)).not.toContain(HIRING_ID);
   });
 });
 
