@@ -24,10 +24,18 @@ const WEBHOOK_LABEL: Record<string, string> = {
 
 export function QuoConnectionCard({ quo }: { quo: QuoConnection }) {
   const last = quo.lastSetup;
-  // A warning from the last run, shown only while that part is still not connected.
+  // A warning from the last run, shown only while that part is still not connected,
+  // plus two that matter even once connected: a webhook created without Quo
+  // confirming it covers only the hiring number, and a created webhook whose
+  // secret was not kept because another was stored meanwhile.
   const phoneProblem = last && !quo.phoneIdLast4 && (last.phone.status === "not_found" || last.phone.status === "error") ? last.phone.message : null;
   const webhookProblem =
-    last && !quo.webhookConnected && (last.webhook.status === "exists_without_secret" || last.webhook.status === "error") ? last.webhook.message : null;
+    last &&
+    (last.webhook.status === "exists_without_secret" ||
+      (last.webhook.status === "error" && !quo.webhookConnected) ||
+      (last.webhook.status === "created" && last.webhook.scope !== null && last.webhook.scope !== "hiring_number"))
+      ? last.webhook.message
+      : null;
   return (
     <Card>
       <CardHeader>

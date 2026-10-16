@@ -159,7 +159,9 @@ describe("ensureQuoConnected: the webhook", () => {
       const result = await ensureQuoConnected(db, options(quo.fetch));
       for (const line of describeQuoSetup(result)) console.log(`[quo:setup] ${line}`);
 
-      expect(result.webhook).toMatchObject({ status: "created", idLast4: "ool1", url: TARGET });
+      expect(result.webhook).toMatchObject({ status: "created", idLast4: "ool1", url: TARGET, scope: "hiring_number" });
+      expect(result.webhook.message).toContain("hiring number only, as Quo confirmed");
+      expect(quoSetupNeedsAttention(result)).toBe(false);
       expect(await readIntegrationSecret(db, QUO_WEBHOOK_SECRET_KEY)).toBe(SECRET);
 
       const post = quo.calls.find((c) => c.method === "POST")!;
@@ -208,8 +210,9 @@ describe("ensureQuoConnected: the webhook", () => {
     expect(quoSetupNeedsAttention(result)).toBe(true);
   });
 
-  it("ignores Typhoon's webhook for another address: creates Tidepool's and touches nothing else", async () => {
-    const quo = happyQuo();
+  it("ignores Typhoon's webhook for another address, even one covering the hiring number: creates Tidepool's and touches nothing else", async () => {
+    const typhoonAllNumbers = { ...TYPHOON_HOOK, resourceIds: [TYPHOON_ID, HIRING_ID] };
+    const quo = happyQuo({ "GET /webhooks": () => json({ data: [typhoonAllNumbers] }) });
     const result = await ensureQuoConnected(db, options(quo.fetch));
     expect(result.webhook.status).toBe("created");
     const writes = quo.calls.filter((c) => c.method !== "GET");
@@ -217,6 +220,79 @@ describe("ensureQuoConnected: the webhook", () => {
     expect(writes[0]).toMatchObject({ method: "POST", path: "/webhooks" });
     expect(JSON.stringify(writes[0]!.body)).not.toContain("typhoon");
     expect(quo.calls.some((c) => c.path.includes(TYPHOON_HOOK.id))).toBe(false);
+  });
+
+  it("finds its own webhook under a field name it does not know, so repeated deploys create one webhook", async () => {
+    // Quo lists the address under an unknown key, nested, and returns the secret under an unknown name.
+    const made: { id: string; url: string }[] = [];
+    const quo = fakeQuo({
+      "GET /v1/phone-numbers": () => json(NUMBERS),
+      "GET /webhooks": () => json({ data: [TYPHOON_HOOK, ...made.map((hook) => ({ id: hook.id, title: "x", config: { webhookURL: hook.url } }))] }),
+      "POST /webhooks": (call) => {
+        const hook = { id: `WHtidepool${made.length + 1}`, url: (call.body as { url: string }).url };
+        made.push(hook);
+        return json({ data: { id: hook.id, signingKey: SECRET } }, 201);
+      },
+    });
+    const results = [];
+    for (let deploy = 0; deploy < 3; deploy++) results.push(await ensureQuoConnected(db, options(quo.fetch)));
+    expect(quo.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(results.map((r) => r.webhook.status)).toEqual(["exists_without_secret", "exists_without_secret", "exists_without_secret"]);
+    expect(results[1]!.webhook.message).toContain(`already posts to ${TARGET}`);
+    expect(results[2]!.webhook.idLast4).toBe("ool1");
+    expect(await readIntegrationSecret(db, QUO_WEBHOOK_SECRET_KEY)).toBeNull();
+    expect(quo.calls.some((c) => c.method !== "GET" && c.method !== "POST")).toBe(false);
+  });
+
+  it("treats a webhook labeled Tidepool as its own even when its address is unreadable", async () => {
+    const quo = happyQuo({ "GET /webhooks": () => json({ data: [TYPHOON_HOOK, { id: "WHtidepool55", name: " tidepool " }] }) });
+    const result = await ensureQuoConnected(db, options(quo.fetch));
+    expect(result.webhook).toMatchObject({ status: "exists_without_secret", idLast4: "ol55" });
+    expect(result.webhook.message).toContain("labeled Tidepool already exists");
+    expect(quo.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("keeps a secret stored by something else during the create and says the new webhook must be deleted", async () => {
+    const OTHER = "whsec_" + Buffer.from("a-secret-written-by-hand-32bytes").toString("base64");
+    const quo = happyQuo({
+      "POST /webhooks": async (call) => {
+        // A row written without the setup lock (by hand, a restore) lands while Quo is creating the webhook.
+        await db.insert(integrationSecret).values({ key: QUO_WEBHOOK_SECRET_KEY, value: OTHER });
+        return json({ data: { id: "WHtidepool2", ...(call.body as object), secret: SECRET } }, 201);
+      },
+    });
+    const result = await ensureQuoConnected(db, options(quo.fetch));
+    expect(result.webhook).toMatchObject({ status: "exists_without_secret", idLast4: "ool2", scope: null });
+    expect(result.webhook.message).toContain("was not kept");
+    expect(result.webhook.message).toContain("Delete that new webhook (id ...ool2)");
+    expect(quoSetupNeedsAttention(result)).toBe(true);
+    expect(await readIntegrationSecret(db, QUO_WEBHOOK_SECRET_KEY)).toBe(OTHER);
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(result)).not.toContain(OTHER);
+  });
+
+  it("flags a created webhook whose scope Quo does not echo", async () => {
+    const quo = happyQuo({ "POST /webhooks": () => json({ data: { id: "WHtidepool3", label: "Tidepool", url: TARGET, secret: SECRET } }, 201) });
+    const result = await ensureQuoConnected(db, options(quo.fetch));
+    expect(result.webhook).toMatchObject({ status: "created", scope: "unconfirmed" });
+    expect(result.webhook.message).toContain("does not say which numbers it covers");
+    expect(result.webhook.message).toContain("...2259");
+    expect(quoSetupNeedsAttention(result)).toBe(true);
+    expect(await readIntegrationSecret(db, QUO_WEBHOOK_SECRET_KEY)).toBe(SECRET);
+    const settings = await getTextingSettings(db);
+    expect(settings.quo.lastSetup?.webhook).toMatchObject({ status: "created", scope: "unconfirmed" });
+  });
+
+  it("flags a created webhook that Quo says covers more than the hiring number", async () => {
+    for (const scope of [{ resourceIds: [HIRING_ID, TYPHOON_ID] }, { resourceIds: [] }, { phoneNumberIds: null }, { resourceIds: [HIRING_ID], phoneNumberIds: [] }]) {
+      await resetQuoState();
+      const quo = happyQuo({ "POST /webhooks": () => json({ data: { id: "WHtidepool4", url: TARGET, ...scope, secret: SECRET } }, 201) });
+      const result = await ensureQuoConnected(db, options(quo.fetch));
+      expect(result.webhook).toMatchObject({ status: "created", scope: "wider" });
+      expect(result.webhook.message).toContain("covers more than the hiring number");
+      expect(result.webhook.message).not.toMatch(/PNhire|PNtyphoon/);
+      expect(quoSetupNeedsAttention(result)).toBe(true);
+    }
   });
 
   it("stores nothing when the create response has no recognizable secret, and never echoes that body", async () => {

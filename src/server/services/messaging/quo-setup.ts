@@ -17,10 +17,13 @@ import { QUO_EVENT_TYPES } from "./webhooks";
 //      store its id (the `from` of every text). Once stored, no API call.
 //   2. The webhook. While no signing secret exists (QUO_WEBHOOK_SECRET in
 //      Railway, or the integration_secret row), list the existing webhooks; if
-//      one already posts to <PUBLIC_BASE_URL>/api/webhooks/quo, create nothing
-//      and say how to recover its secret; otherwise create the one Tidepool
-//      webhook, scoped to the hiring number, and store its signing secret in the
-//      same run. Quo shows that secret only once, at creation.
+//      one already posts to <PUBLIC_BASE_URL>/api/webhooks/quo (under any field
+//      name) or is labeled Tidepool, create nothing and say how to recover its
+//      secret; otherwise create the one Tidepool webhook, scoped to the hiring
+//      number, and store its signing secret in the same run. Quo shows that
+//      secret only once, at creation. When Quo's response does not confirm the
+//      scope is the hiring number alone, the run still counts as created but
+//      needs attention, so the owner checks it in Quo.
 //
 // Quo is shared with Typhoon: this never updates or deletes a webhook, and only
 // ever creates the one pointing at Tidepool's own address. Each step runs in its
@@ -48,10 +51,14 @@ const LOCK = sql`select pg_advisory_xact_lock(hashtext('tidepool:quo:setup'))`;
 
 export type QuoPhoneStatus = "connected" | "already" | "not_found" | "error";
 export type QuoWebhookStatus = "created" | "already" | "exists_without_secret" | "error";
+// Which numbers a webhook this run created covers, as Quo's create response states
+// it: only the hiring number, more than that (or all), or not stated. Null when
+// nothing was created.
+export type QuoWebhookScope = "hiring_number" | "wider" | "unconfirmed";
 
 export type QuoSetupResult = {
   phone: { status: QuoPhoneStatus; message: string; idLast4: string | null };
-  webhook: { status: QuoWebhookStatus; message: string; idLast4: string | null; url: string | null };
+  webhook: { status: QuoWebhookStatus; message: string; idLast4: string | null; url: string | null; scope: QuoWebhookScope | null };
   at: Date;
 };
 
@@ -69,12 +76,13 @@ export type QuoSetupOptions = {
 };
 
 export function quoSetupNeedsAttention(result: Pick<QuoSetupResult, "phone" | "webhook">): boolean {
-  return (
-    result.phone.status === "not_found" ||
-    result.phone.status === "error" ||
-    result.webhook.status === "exists_without_secret" ||
-    result.webhook.status === "error"
-  );
+  return result.phone.status === "not_found" || result.phone.status === "error" || quoWebhookNeedsAttention(result.webhook);
+}
+
+// A webhook problem, or a webhook created without Quo confirming it covers only the hiring number.
+export function quoWebhookNeedsAttention(webhook: { status: QuoWebhookStatus; scope: QuoWebhookScope | null }): boolean {
+  if (webhook.status === "exists_without_secret" || webhook.status === "error") return true;
+  return webhook.status === "created" && webhook.scope !== "hiring_number";
 }
 
 export async function ensureQuoConnected(db: Db, options: QuoSetupOptions): Promise<QuoSetupResult> {
@@ -134,17 +142,17 @@ export async function ensureQuoPhone(db: Db, options: QuoSetupOptions, ctx: Cont
 export async function ensureQuoWebhook(db: Db, options: QuoSetupOptions, ctx: Context = context(options)): Promise<QuoSetupResult["webhook"]> {
   const base = normalizeBaseUrl(options.publicBaseUrl);
   const url = base ? `${base}${QUO_WEBHOOK_ROUTE}` : null;
-  const webhookError = (message: string, idLast4: string | null = null): QuoSetupResult["webhook"] => ({ status: "error", message, idLast4, url });
+  const webhookError = (message: string, idLast4: string | null = null): QuoSetupResult["webhook"] => ({ status: "error", message, idLast4, url, scope: null });
 
   if (quoWebhookSecretFromEnv(ctx.env)) {
-    return { status: "already", idLast4: null, url, message: "The webhook signing secret is set in Railway (QUO_WEBHOOK_SECRET); nothing to create." };
+    return { status: "already", idLast4: null, url, scope: null, message: "The webhook signing secret is set in Railway (QUO_WEBHOOK_SECRET); nothing to create." };
   }
   try {
     return await db.transaction(async (tx) => {
       await tx.execute(LOCK);
       const stored = await readIntegrationSecretMeta(tx, QUO_WEBHOOK_SECRET_KEY);
       if (stored) {
-        return { status: "already", idLast4: null, url, message: `The webhook signing secret is stored (since ${stored.createdAt.toISOString()}); nothing to create.` };
+        return { status: "already", idLast4: null, url, scope: null, message: `The webhook signing secret is stored (since ${stored.createdAt.toISOString()}); nothing to create.` };
       }
       if (!url) {
         return webhookError("PUBLIC_BASE_URL must be the app's public https address (Quo posts to <PUBLIC_BASE_URL>/api/webhooks/quo); no webhook created.");
@@ -159,19 +167,24 @@ export async function ensureQuoWebhook(db: Db, options: QuoSetupOptions, ctx: Co
       const hooks = findList(listed.body);
       if (!hooks) return webhookError(`Quo's webhook list has no shape Tidepool recognizes (HTTP ${listed.status}), so nothing was created.`);
 
-      // Only a webhook pointing at Tidepool's own address is Tidepool's. Typhoon's
-      // (and any other app's) webhooks are never touched.
-      const ours = hooks.find((hook) => sameUrl(str(hook, ["url", "endpoint", "webhookUrl", "target"]), url));
+      // A webhook posting to Tidepool's own address (whatever field Quo keeps the
+      // address in) or labeled Tidepool is Tidepool's, so a list whose field names
+      // Tidepool does not know never leads to a second one. Matching never looks at
+      // the numbers a webhook covers: Typhoon's may include the hiring number.
+      // Typhoon's (and any other app's) webhooks are never touched.
+      const ours = hooks.find((hook) => pointsAt(hook, url)) ?? hooks.find(labeledTidepool);
       if (ours) {
         const last4 = tail(str(ours, ["id", "webhookId"]));
+        const which = pointsAt(ours, url) ? `already posts to ${url}` : `labeled ${QUO_WEBHOOK_LABEL} already exists`;
         return {
           status: "exists_without_secret",
           idLast4: last4,
           url,
+          scope: null,
           message:
-            `A Quo webhook${last4 ? ` (id ${mask(last4)})` : ""} already posts to ${url}, but Quo shows a webhook's signing secret only when it is created, ` +
+            `A Quo webhook${last4 ? ` (id ${mask(last4)})` : ""} ${which}, but Quo shows a webhook's signing secret only when it is created, ` +
             "so Tidepool cannot read it and created nothing. Either paste that webhook's signing secret into Railway as QUO_WEBHOOK_SECRET on the web service, " +
-            "or delete that one webhook in Quo (only the one posting to this address) so the next deploy recreates it and stores the new secret.",
+            `or delete that one webhook in Quo (only the one labeled ${QUO_WEBHOOK_LABEL} or posting to this address) so the next deploy recreates it and stores the new secret.`,
         };
       }
 
@@ -185,7 +198,8 @@ export async function ensureQuoWebhook(db: Db, options: QuoSetupOptions, ctx: Co
         status: "enabled",
       };
       const created = await ctx.call("POST", ctx.webhooksUrl, payload, true);
-      if (!created.ok) return webhookError(`Quo did not create the webhook: ${created.problem}`);
+      // A timeout or a 5xx may still have created it; the next run's list finds it by its address or label.
+      if (!created.ok) return webhookError(`Quo did not confirm creating the webhook (the next deploy checks Quo's list before trying again): ${created.problem}`);
 
       const id = findField(created.body, ["id", "webhookId"]);
       const last4 = tail(id);
@@ -195,23 +209,48 @@ export async function ensureQuoWebhook(db: Db, options: QuoSetupOptions, ctx: Co
           status: "exists_without_secret",
           idLast4: last4,
           url,
+          scope: null,
           message:
             `Quo created the webhook${last4 ? ` (id ${mask(last4)})` : ""} for ${url}, but its response carried no signing secret Tidepool recognizes, so nothing was stored. ` +
             "Copy the signing secret from that webhook's page in Quo into Railway as QUO_WEBHOOK_SECRET on the web service, or delete that webhook in Quo so the next deploy recreates it.",
         };
       }
       ctx.sensitive.push(secret);
-      await storeIntegrationSecret(tx, {
+      const kept = await storeIntegrationSecret(tx, {
         key: QUO_WEBHOOK_SECRET_KEY,
         value: secret,
         note: `Signing secret of the Quo webhook${last4 ? ` ${mask(last4)}` : ""} for ${url}, created by quo:setup on ${ctx.now.toISOString()}`,
         now: ctx.now,
       });
+      if (!kept) {
+        // Something that does not take the lock (a hand-written row, a restore) stored a
+        // secret after this run checked. That one stays; this webhook's secret is lost.
+        return {
+          status: "exists_without_secret",
+          idLast4: last4,
+          url,
+          scope: null,
+          message:
+            `Created the Quo webhook${last4 ? ` (id ${mask(last4)})` : ""} for ${url}, but a signing secret was stored by something else while this run was creating it, ` +
+            "so the new webhook's secret was not kept and its deliveries will be refused. " +
+            `Delete that new webhook${last4 ? ` (id ${mask(last4)})` : ""} in Quo; the secret already stored stays in use.`,
+        };
+      }
+
+      const wanted = maskNumber(usDigits(emp.smsFromE164 ?? ""));
+      const scope = createdScope(created.body, emp.smsQuoPhoneNumberId);
+      const scopeText =
+        scope === "hiring_number"
+          ? "hiring number only, as Quo confirmed"
+          : scope === "wider"
+            ? `WARNING: Quo's response shows it covers more than the hiring number ${wanted}. In Quo, limit this webhook to the hiring number so Typhoon's texts never reach Tidepool`
+            : `WARNING: Quo's response does not say which numbers it covers. In Quo, check that this webhook covers only the hiring number ${wanted}, so Typhoon's texts never reach Tidepool`;
       return {
         status: "created",
         idLast4: last4,
         url,
-        message: `Created the Quo webhook${last4 ? ` (id ${mask(last4)})` : ""} for ${url} (${QUO_WEBHOOK_EVENTS.join(", ")}; hiring number only) and stored its signing secret.`,
+        scope,
+        message: `Created the Quo webhook${last4 ? ` (id ${mask(last4)})` : ""} for ${url} (${QUO_WEBHOOK_EVENTS.join(", ")}) and stored its signing secret. Scope: ${scopeText}.`,
       };
     });
   } catch (error) {
@@ -233,7 +272,7 @@ async function recordQuoSetup(db: Db, result: QuoSetupResult, ctx: Context): Pro
       occurredAt: result.at,
       changes: {
         phone: { status: result.phone.status, idLast4: result.phone.idLast4, message: ctx.scrub(result.phone.message) },
-        webhook: { status: result.webhook.status, idLast4: result.webhook.idLast4, message: ctx.scrub(result.webhook.message) },
+        webhook: { status: result.webhook.status, idLast4: result.webhook.idLast4, scope: result.webhook.scope, message: ctx.scrub(result.webhook.message) },
       },
     });
   } catch (error) {
@@ -244,7 +283,7 @@ async function recordQuoSetup(db: Db, result: QuoSetupResult, ctx: Context): Pro
 export type LastQuoSetup = {
   at: Date;
   phone: { status: QuoPhoneStatus; message: string };
-  webhook: { status: QuoWebhookStatus; message: string };
+  webhook: { status: QuoWebhookStatus; message: string; scope: QuoWebhookScope | null };
 };
 
 // The newest setup run, for Settings > Texting.
@@ -262,7 +301,11 @@ export async function getLastQuoSetup(db: Db, employerId: string): Promise<LastQ
   return {
     at: row.occurredAt,
     phone: { status: (str(phone, ["status"]) ?? "error") as QuoPhoneStatus, message: str(phone, ["message"]) ?? "" },
-    webhook: { status: (str(webhook, ["status"]) ?? "error") as QuoWebhookStatus, message: str(webhook, ["message"]) ?? "" },
+    webhook: {
+      status: (str(webhook, ["status"]) ?? "error") as QuoWebhookStatus,
+      message: str(webhook, ["message"]) ?? "",
+      scope: (str(webhook, ["scope"]) as QuoWebhookScope | null) ?? null,
+    },
   };
 }
 
@@ -418,6 +461,50 @@ function findField(payload: unknown, keys: string[]): string | null {
     if (found) return found;
   }
   return null;
+}
+
+// True when any string in the webhook entry (at any field name, up to three levels
+// down) is Tidepool's webhook address.
+function pointsAt(hook: Json, url: string, depth = 0): boolean {
+  for (const value of Object.values(hook)) {
+    if (typeof value === "string") {
+      if (sameUrl(value, url)) return true;
+    } else if (depth < 2) {
+      const items = Array.isArray(value) ? value : [value];
+      for (const item of items) {
+        if (typeof item === "string" ? sameUrl(item, url) : asObject(item) !== null && pointsAt(asObject(item)!, url, depth + 1)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function labeledTidepool(hook: Json): boolean {
+  return ["label", "name"].some((key) => {
+    const value = hook[key];
+    return typeof value === "string" && value.trim().toLowerCase() === QUO_WEBHOOK_LABEL.toLowerCase();
+  });
+}
+
+// The numbers a just-created webhook covers, from the scope fields of Quo's create
+// response (field names unverified, the same two the request sends). An empty list
+// or null usually means every number in the workspace.
+function createdScope(payload: unknown, hiringId: string): QuoWebhookScope {
+  const keys = ["resourceIds", "phoneNumberIds"];
+  const root = asObject(payload);
+  const data = asObject(root?.data);
+  const holder = [data, asObject(data?.webhook), root, asObject(root?.webhook)].find((obj) => obj !== null && keys.some((key) => key in obj));
+  if (!holder) return "unconfirmed";
+  const lists: string[][] = [];
+  for (const key of keys) {
+    if (!(key in holder)) continue;
+    const value = holder[key];
+    if (value === null) lists.push([]);
+    else if (typeof value === "string") lists.push([value]);
+    else if (Array.isArray(value)) lists.push(value.map((item) => (typeof item === "string" ? item : (str(asObject(item), ["id"]) ?? ""))));
+    else return "unconfirmed";
+  }
+  return lists.every((ids) => ids.length === 1 && ids[0] === hiringId) ? "hiring_number" : "wider";
 }
 
 function numberCandidates(entry: Json): string[] {
