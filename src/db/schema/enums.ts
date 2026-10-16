@@ -94,6 +94,10 @@ export const sourceEnum = pgEnum("source", [
   "other",
 ]);
 export const attributionMethodEnum = pgEnum("attribution_method", ["none", "scanned_session", "phone_match", "staff_confirmed"]);
+// How the person arrived at the group interview, set by staff. Null means not recorded.
+export const GROUP_INTERVIEW_ARRIVALS = ["on_time", "late", "did_not_attend"] as const;
+export type GroupInterviewArrival = (typeof GROUP_INTERVIEW_ARRIVALS)[number];
+export const groupInterviewArrivalEnum = pgEnum("group_interview_arrival", GROUP_INTERVIEW_ARRIVALS);
 export const QUESTION_TYPES = ["short_text", "long_text", "single_choice", "multi_choice", "yes_no", "date", "number"] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 export const questionTypeEnum = pgEnum("question_type", QUESTION_TYPES);

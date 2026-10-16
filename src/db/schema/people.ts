@@ -26,6 +26,7 @@ import {
   attributionMethodEnum,
   closedOutcomeEnum,
   entryChannelEnum,
+  groupInterviewArrivalEnum,
   sourceEnum,
 } from "./enums";
 
@@ -116,6 +117,8 @@ export const application = pgTable(
     sourceSetBy: actorTypeEnum(),
     indeedAppliedOn: date({ mode: "string" }),
     excludeFromAnalysis: boolean().notNull().default(false),
+    // Staff-recorded arrival at the group interview; null = not recorded. Audited.
+    groupInterviewArrival: groupInterviewArrivalEnum(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamptz(),

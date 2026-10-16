@@ -179,6 +179,11 @@ export const questionVersion = pgTable(
     // True when this version asks something materially different; reports stop pooling across it.
     meaningChanged: boolean().notNull().default(false),
     changeNote: text(),
+    // Staff-only "What to look for" notes. Never shown to applicants, never sent to AI.
+    staffGuidance: text(),
+    // When set, the answer passes if it starts with this word (see forms/starts-with.ts).
+    // Text questions only.
+    startsWithCheck: text(),
     publishedAt: timestamptz(),
     createdBy: uuid().references(() => appUser.id),
     createdAt: createdAt(),
@@ -188,6 +193,10 @@ export const questionVersion = pgTable(
     check(
       "question_version_options_iff_choice",
       sql`(${table.options} is not null) = (${table.type} in ('single_choice', 'multi_choice'))`,
+    ),
+    check(
+      "question_version_starts_with_check_text_only",
+      sql`${table.startsWithCheck} is null or ${table.type} in ('short_text', 'long_text')`,
     ),
   ],
 );

@@ -322,3 +322,58 @@ describe("column checks", () => {
     );
   });
 });
+
+// drizzle/0004_staff_guidance_and_arrival.sql: additive columns, enum and table.
+describe("staff guidance, starts-with check, arrival and applied changes", () => {
+  it("adds the nullable columns, the arrival enum and the applied_change table", async () => {
+    const columns = await db.execute<{ table_name: string; column_name: string; is_nullable: string; udt_name: string }>(
+      raw`select table_name, column_name, is_nullable, udt_name from information_schema.columns
+          where table_schema = 'public' and (
+            (table_name = 'question_version' and column_name in ('staff_guidance', 'starts_with_check'))
+            or (table_name = 'application' and column_name = 'group_interview_arrival')
+            or table_name = 'applied_change')
+          order by table_name, column_name`,
+    );
+    expect(columns.map((c) => [c.table_name, c.column_name, c.is_nullable, c.udt_name])).toEqual([
+      ["application", "group_interview_arrival", "YES", "group_interview_arrival"],
+      ["applied_change", "applied_at", "NO", "timestamptz"],
+      ["applied_change", "description", "NO", "text"],
+      ["applied_change", "id", "NO", "text"],
+      ["question_version", "staff_guidance", "YES", "text"],
+      ["question_version", "starts_with_check", "YES", "text"],
+    ]);
+    const labels = await db.execute<{ enumlabel: string }>(
+      raw`select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = 'group_interview_arrival' order by e.enumsortorder`,
+    );
+    expect(labels.map((l) => l.enumlabel)).toEqual(["on_time", "late", "did_not_attend"]);
+  });
+
+  it("leaves seeded rows untouched: no guidance, no check, no arrival", async () => {
+    const id = await questionVersionId(snow.roleId, "age_18_plus");
+    const [version] = await db.select().from(questionVersion).where(eq(questionVersion.id, id));
+    expect(version?.staffGuidance).toBeNull();
+    expect(version?.startsWithCheck).toBeNull();
+    const personId = await createPerson(db);
+    const { applicationId } = await createApplication(db, snow, personId);
+    const [app] = await db.select().from(application).where(eq(application.id, applicationId));
+    expect(app?.groupInterviewArrival).toBeNull();
+  });
+
+  it("allows a starts-with check only on text questions", async () => {
+    await withRollback(db, async (tx) => {
+      const questionId = uuidv7();
+      await tx.insert(question).values({ id: questionId, roleId: windowRoleId, key: `check_${questionId.slice(-8)}` });
+      await tx.insert(questionVersion).values({ id: uuidv7(), questionId, version: 1, type: "long_text", prompt: "Start with Blue.", startsWithCheck: "blue" });
+      await expectPgError(
+        tx.insert(questionVersion).values({ id: uuidv7(), questionId, version: 2, type: "yes_no", prompt: "Yes or no?", startsWithCheck: "blue" }),
+        PG.checkViolation,
+      );
+    });
+  });
+
+  it("keeps the new columns frozen once a version is published", async () => {
+    const id = await questionVersionId(snow.roleId, "age_18_plus");
+    await expectPgError(db.update(questionVersion).set({ staffGuidance: "Look for a yes" }).where(eq(questionVersion.id, id)), PG.immutablePublished);
+    await expectPgError(db.update(questionVersion).set({ startsWithCheck: null }).where(eq(questionVersion.id, id)), PG.immutablePublished);
+  });
+});
