@@ -17,6 +17,15 @@ test.describe("admin shell", () => {
       await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
     }
   });
+
+  test("Settings > Texting shows the Quo connection and never a secret", async ({ page }) => {
+    await page.goto("/admin/settings/texting");
+    await expect(page.getByText("Quo connection", { exact: true })).toBeVisible();
+    await expect(page.getByText("Webhook (replies and delivery updates)")).toBeVisible();
+    await expect(page.getByText(/^(Connected|Not connected)/).first()).toBeVisible();
+    await expect(page.getByText(/^(Last setup:|No setup has run yet)/)).toBeVisible();
+    expect(await page.content()).not.toContain("whsec_");
+  });
 });
 
 test("sign-in page is reachable without a session", async ({ browser }) => {
