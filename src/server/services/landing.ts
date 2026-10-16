@@ -8,12 +8,14 @@ import { APPLICANT_ACTOR } from "./actor";
 import { createApplication } from "./applications/transition";
 import { recordConsent, liveSuppression } from "./messaging/consent";
 import { queueMessage } from "./messaging/send";
+import { matchApplicationByPhone } from "./sessions/matching";
 import { normalizeEmail } from "./users";
 
 // The landing form (DATA_MODEL.md, "Landing matching"): match by mobile, then
 // email, never names; the public form never changes contact details on file;
 // a matched person with an application on this opening gets the link resent and
-// a neutral screen; any mismatch becomes a landing_conflict for staff.
+// a neutral screen; any mismatch becomes a landing_conflict for staff. A new
+// application is matched to a group interview check-in with the same mobile.
 
 type PersonRow = typeof person.$inferSelect;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -228,8 +230,21 @@ export async function landApplicant(db: Db, input: LandingInput): Promise<Landin
     });
     const textsBlocked = await consent(who.id, applicationId);
     await sendLinks(who.id, applicationId, "resume_link", input.textConsent.checked);
+    await matchCheckIns(tx, applicationId, now);
     return { outcome: "created", applicationId, personId: who.id, newPerson, textsBlocked, queued };
   });
+}
+
+// Most people apply from the QR after the group interview they checked in at, so a
+// door check-in or sheet row with their mobile on one of the opening's sessions is
+// matched at once (services/sessions/matching.ts). It runs in a savepoint and only
+// logs a failure: matching must never stop anyone applying.
+async function matchCheckIns(tx: Tx, applicationId: string, now: Date) {
+  try {
+    await tx.transaction((savepoint) => matchApplicationByPhone(savepoint, applicationId, now));
+  } catch (error) {
+    console.error("[landing] matching the new application to a group session check-in failed", error);
+  }
 }
 
 async function writeConflict(
