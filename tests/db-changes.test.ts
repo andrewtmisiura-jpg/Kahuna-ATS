@@ -76,7 +76,7 @@ async function newApplication(tx: Tx) {
 
 describe("the change list", () => {
   it("lists the snow change first, with its permanent id", () => {
-    expect(CHANGES.map((c) => c.id)).toEqual([ID]);
+    expect(CHANGES[0]?.id).toBe(ID);
   });
 
   it("refuses a list with the same id twice", async () => {
@@ -93,7 +93,7 @@ describe("the snow behavioral questions change", () => {
     await withRollback(db, async (tx) => {
       const before = await publishedSnow(tx);
       const lines: string[] = [];
-      const first = await runChanges(tx, CHANGES, (line) => lines.push(line));
+      const first = await runChanges(tx, [snowBehavioralQuestions], (line) => lines.push(line));
       expect(first).toEqual({ applied: [ID], skipped: [] });
       expect(lines.join("\n")).toContain(`applied ${ID}`);
 
@@ -151,7 +151,7 @@ describe("the snow behavioral questions change", () => {
       expect(creates.length).toBeGreaterThanOrEqual(5);
 
       // The second run does nothing.
-      const second = await runChanges(tx, CHANGES);
+      const second = await runChanges(tx, [snowBehavioralQuestions]);
       expect(second).toEqual({ applied: [], skipped: [ID] });
       expect((await publishedSnow(tx)).version).toBe(after.version);
     });
@@ -159,13 +159,13 @@ describe("the snow behavioral questions change", () => {
 
   it("never re-adds a question someone later removed, because the id is recorded", async () => {
     await withRollback(db, async (tx) => {
-      await runChanges(tx, CHANGES);
+      await runChanges(tx, [snowBehavioralQuestions]);
       const draft = await ensureDraft(tx, { roleId: snow.roleId, actor: staffActor(adminId) });
       const blue = draft.items.find((i) => i.key === "best_boss_blue")!;
       await removeQuestion(tx, { formVersionId: draft.id, questionVersionId: blue.questionVersionId, actor: staffActor(adminId) });
       await publishForm(tx, { formVersionId: draft.id, changeReason: "Owner dropped the Blue question", actor: staffActor(adminId) });
 
-      expect(await runChanges(tx, CHANGES)).toEqual({ applied: [], skipped: [ID] });
+      expect(await runChanges(tx, [snowBehavioralQuestions])).toEqual({ applied: [], skipped: [ID] });
       const live = await publishedSnow(tx);
       expect(live.items.map((i) => i.key)).not.toContain("best_boss_blue");
       expect(live.items.filter((i) => i.sectionKey === "how_you_work")).toHaveLength(4);

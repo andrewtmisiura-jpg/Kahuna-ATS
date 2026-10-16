@@ -1,4 +1,5 @@
 import { snowBehavioralQuestions } from "./snow-behavioral-questions";
+import { snowStarterRubric } from "./snow-starter-rubric";
 import type { Change } from "./types";
 
 // Every one-time content change, oldest first. `pnpm db:changes` runs the ones
@@ -10,7 +11,7 @@ import type { Change } from "./types";
 //   1. phase2Templates     id 2026-10-16-phase2-templates      (./phase2-templates.ts)
 //   2. snowStarterRubric   id 2026-10-16-snow-starter-rubric   (./snow-starter-rubric.ts)
 
-export const CHANGES: readonly Change[] = [snowBehavioralQuestions];
+export const CHANGES: readonly Change[] = [snowBehavioralQuestions, snowStarterRubric];
 
 export type { Change, ChangeContext } from "./types";
 export { ChangeError, runChanges, type ChangeReport } from "./runner";
