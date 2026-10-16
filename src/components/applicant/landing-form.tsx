@@ -17,6 +17,8 @@ export type LandingFormProps = {
   consentLabel: string;
   // Safe HTML from the legal renderer; links open in a new tab so the form is not lost.
   consentDisclosureHtml: string;
+  // The AI notice version the page shows, posted back so a stale page is caught.
+  aiDisclosureVersionId: string | null;
   turnstileSiteKey: string | null;
   nonce: string | null;
 };
@@ -62,6 +64,7 @@ export function LandingForm(props: LandingFormProps) {
     <form action={formAction} className="space-y-5" noValidate>
       <input type="hidden" name="code" value={props.code} />
       <input type="hidden" name="consentVersionId" value={props.consentVersionId} />
+      <input type="hidden" name="aiDisclosureVersionId" value={props.aiDisclosureVersionId ?? ""} />
 
       {errors.form ? <FormNotice tone="error">{errors.form}</FormNotice> : null}
 

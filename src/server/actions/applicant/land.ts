@@ -7,6 +7,7 @@ import { resolveEntryCode } from "@/server/services/entry-codes";
 import { isPlausibleEmail, landApplicant, LandingError, normalizeUsMobile, suggestEmail } from "@/server/services/landing";
 import { getProviders } from "@/server/services/messaging/providers";
 import { processMessages, SendError } from "@/server/services/messaging/send";
+import { isCurrentAiDisclosure } from "@/server/services/scoring/disclosure";
 import { requestContext } from "./request";
 import { currentApplicationId, setApplicantCookie } from "./session";
 import { TURNSTILE_FIELD, verifyTurnstile } from "./turnstile";
@@ -29,6 +30,7 @@ export type LandState =
 const fields = z.object({
   code: z.string().trim().min(1).max(16),
   consentVersionId: z.string().uuid(),
+  aiDisclosureVersionId: z.string().max(64).optional(),
   firstName: z.string().trim().max(100),
   lastName: z.string().trim().max(100),
   mobile: z.string().trim().max(40),
@@ -43,6 +45,7 @@ export async function landAction(_previous: LandState, formData: FormData): Prom
   const parsed = fields.safeParse({
     code: formData.get("code"),
     consentVersionId: formData.get("consentVersionId"),
+    aiDisclosureVersionId: formData.get("aiDisclosureVersionId") ?? undefined,
     firstName: formData.get("firstName") ?? "",
     lastName: formData.get("lastName") ?? "",
     mobile: formData.get("mobile") ?? "",
@@ -78,6 +81,11 @@ export async function landAction(_previous: LandState, formData: FormData): Prom
   const sourceDetail = sourceTakesDetail(source) ? input.sourceDetail?.trim() || null : null;
 
   try {
+    // The AI notice the page showed must still be the current one, so each application
+    // starts under the version its applicant read (scoring/disclosure.ts).
+    if (!(await isCurrentAiDisclosure(db, input.aiDisclosureVersionId || null))) {
+      return { status: "errors", errors: { form: "This page is out of date. Reload it and try again." } };
+    }
     const result = await landApplicant(db, {
       openingId: resolution.opening.id,
       entryCodeId: resolution.entryCode.id,
