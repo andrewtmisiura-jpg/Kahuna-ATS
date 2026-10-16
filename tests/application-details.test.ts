@@ -4,8 +4,9 @@ import { db, sql } from "@/db";
 import { application, auditLog, groupSession, opening, role } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
-import { DetailError, setAttributedSession, updateSource } from "@/server/services/applications/details";
-import { listApplications, loadProfile } from "@/server/services/applications/queries";
+import { DetailError, setAttributedSession, setGroupInterviewArrival, updateSource } from "@/server/services/applications/details";
+import { listApplications, loadProfile, parseListFilters } from "@/server/services/applications/queries";
+import { getSession } from "@/server/services/config/sessions";
 import { createApplication, transition } from "@/server/services/applications/transition";
 import { createPerson, loadAdminId, loadSnow, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 
@@ -196,5 +197,89 @@ describe("group session", () => {
     await expect(setAttributedSession(db, { applicationId, userId: adminId, sessionId: deleted })).rejects.toMatchObject({ code: "session_not_found" });
     await expect(setAttributedSession(db, { applicationId, userId: adminId, sessionId: uuidv7() })).rejects.toMatchObject({ code: "session_not_found" });
     expect((await load(applicationId)).attributedSessionId).toBeNull();
+  });
+});
+
+describe("group interview arrival", () => {
+  const ARRIVAL_TAG = "Qzarrival";
+
+  async function arrivalApplication() {
+    const personId = await createPerson(db, { lastName: `Person${ARRIVAL_TAG}` });
+    const { applicationId } = await createApplication(db, {
+      personId,
+      openingId: snow.openingId,
+      origin: "landing",
+      entryChannel: "session_qr",
+      scannedSessionId: sessionId,
+      actor: applicant,
+    });
+    await transition(db, { action: "submit", applicationId, actor: applicant });
+    return applicationId;
+  }
+
+  async function arrivalAudits(applicationId: string) {
+    return db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.applicationId, applicationId), eq(auditLog.action, "application.arrival_change")))
+      .orderBy(auditLog.occurredAt, auditLog.id);
+  }
+
+  it("sets and clears arrival with an audit row for each change, and the list filters by it", async () => {
+    const onTime = await arrivalApplication();
+    const late = await arrivalApplication();
+    const unrecorded = await arrivalApplication();
+    expect((await load(onTime)).groupInterviewArrival).toBeNull();
+
+    expect(await setGroupInterviewArrival(db, { applicationId: onTime, userId: adminId, role: "hiring_manager", arrival: "on_time" })).toEqual({ changed: true });
+    expect(await setGroupInterviewArrival(db, { applicationId: late, userId: adminId, role: "admin", arrival: "late" })).toEqual({ changed: true });
+    // The same value again changes nothing and writes no row.
+    expect(await setGroupInterviewArrival(db, { applicationId: onTime, userId: adminId, role: "admin", arrival: "on_time" })).toEqual({ changed: false });
+
+    expect((await load(onTime)).groupInterviewArrival).toBe("on_time");
+    expect((await loadProfile(db, onTime, "viewer"))!.application.groupInterviewArrival).toBe("on_time");
+
+    const filtered = (arrival: string) =>
+      listApplications(db, { ...parseListFilters({ arrival, q: ARRIVAL_TAG }, snow.openingId) }, "admin").then((p) => p.rows.map((r) => r.id));
+    expect(await filtered("on_time")).toEqual([onTime]);
+    expect(await filtered("late")).toEqual([late]);
+    expect(await filtered("did_not_attend")).toEqual([]);
+    expect(await filtered("none")).toEqual([unrecorded]);
+    // An unknown value is dropped, so the filter is off.
+    expect(parseListFilters({ arrival: "early" }, snow.openingId).arrival).toBeUndefined();
+
+    // The session page lists each attributed applicant with their arrival.
+    const session = await getSession(db, sessionId);
+    const rows = session!.applicants.filter((a) => [onTime, late, unrecorded].includes(a.applicationId));
+    expect(Object.fromEntries(rows.map((r) => [r.applicationId, r.groupInterviewArrival]))).toEqual({
+      [onTime]: "on_time",
+      [late]: "late",
+      [unrecorded]: null,
+    });
+
+    // Clearing it ("Not recorded") is a change too.
+    expect(await setGroupInterviewArrival(db, { applicationId: onTime, userId: adminId, role: "admin", arrival: null })).toEqual({ changed: true });
+    expect((await load(onTime)).groupInterviewArrival).toBeNull();
+    const audits = await arrivalAudits(onTime);
+    expect(audits.map((a) => a.changes)).toEqual([
+      { groupInterviewArrival: { from: null, to: "on_time" } },
+      { groupInterviewArrival: { from: "on_time", to: null } },
+    ]);
+    expect(audits[0]).toMatchObject({ actorType: "staff", actorUserId: adminId, entityType: "application", entityId: onTime });
+  });
+
+  it("refuses a Viewer, an unknown value and an unknown application", async () => {
+    const applicationId = await arrivalApplication();
+    await expect(setGroupInterviewArrival(db, { applicationId, userId: adminId, role: "viewer", arrival: "late" })).rejects.toMatchObject({
+      code: "arrival_not_allowed",
+    });
+    await expect(
+      setGroupInterviewArrival(db, { applicationId, userId: adminId, role: "admin", arrival: "early" as unknown as "late" }),
+    ).rejects.toBeInstanceOf(DetailError);
+    await expect(setGroupInterviewArrival(db, { applicationId: uuidv7(), userId: adminId, role: "admin", arrival: "late" })).rejects.toMatchObject({
+      code: "application_not_found",
+    });
+    expect((await load(applicationId)).groupInterviewArrival).toBeNull();
+    expect(await arrivalAudits(applicationId)).toEqual([]);
   });
 });

@@ -3,14 +3,14 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { application, pipelineStage, sourceEnum } from "@/db/schema";
+import { application, GROUP_INTERVIEW_ARRIVALS, pipelineStage, sourceEnum } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import { requireRole } from "@/server/auth/require-role";
 import type { UserRole } from "@/server/auth/roles";
 import type { SessionUser } from "@/server/auth/session";
 import { staffActor } from "@/server/services/actor";
 import { rescindHire, undoLastChange } from "@/server/services/applications/corrections";
-import { setAttributedSession, updateSource } from "@/server/services/applications/details";
+import { setAttributedSession, setGroupInterviewArrival, updateSource } from "@/server/services/applications/details";
 import { addNote, deleteNote, editNote } from "@/server/services/applications/notes";
 import { updateBackgroundCheck, updateHireStint, updateOffer } from "@/server/services/applications/records";
 import { transition, TransitionError, type TransitionInput } from "@/server/services/applications/transition";
@@ -315,6 +315,17 @@ export async function setApplicationSession(raw: z.input<typeof sessionSchema>):
   return run(ACTORS, async (user) => {
     const input = sessionSchema.parse(raw);
     return setAttributedSession(db, { applicationId: input.applicationId, userId: user.id, sessionId: input.sessionId });
+  });
+}
+
+const arrivalSchema = z.object({ applicationId: uuid, arrival: z.enum(GROUP_INTERVIEW_ARRIVALS).nullable() });
+
+// From the profile and the session page. Viewers never reach it (requireRole), and
+// the service checks the role again.
+export async function setApplicationArrival(raw: z.input<typeof arrivalSchema>): Promise<ActionResult<{ changed: boolean }>> {
+  return run(ACTORS, async (user) => {
+    const input = arrivalSchema.parse(raw);
+    return setGroupInterviewArrival(db, { applicationId: input.applicationId, userId: user.id, role: user.role, arrival: input.arrival });
   });
 }
 

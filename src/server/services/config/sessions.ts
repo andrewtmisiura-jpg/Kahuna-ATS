@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, entryCode, entryCodeScanDay, groupSession, opening, person, pipelineStage, role } from "@/db/schema";
+import { application, entryCode, entryCodeScanDay, groupSession, opening, person, pipelineStage, role, type GroupInterviewArrival } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "@/server/services/actor";
 import { diffChanges, writeAudit } from "@/server/services/audit";
@@ -55,6 +55,8 @@ export type SessionApplicant = {
   status: string;
   startedAt: Date;
   submittedAt: Date | null;
+  // Marked from the session page right after the group interview.
+  groupInterviewArrival: GroupInterviewArrival | null;
 };
 
 export type SessionDetail = SessionListRow & { applicants: SessionApplicant[]; codes: EntryCodeListRow[] };
@@ -178,6 +180,7 @@ export async function getSession(db: Db, id: string, now: Date = new Date()): Pr
       status: application.status,
       startedAt: application.startedAt,
       submittedAt: application.submittedAt,
+      groupInterviewArrival: application.groupInterviewArrival,
     })
     .from(application)
     .innerJoin(person, eq(person.id, application.personId))

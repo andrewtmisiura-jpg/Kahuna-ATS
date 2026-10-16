@@ -11,7 +11,8 @@ import { appliedChange, application, appUser, auditLog, formVersion } from "@/db
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { staffActor } from "@/server/services/actor";
-import { loadApplicationForm } from "@/server/services/applications/answers";
+import { loadApplicationForm, saveAnswer } from "@/server/services/applications/answers";
+import { loadProfile } from "@/server/services/applications/queries";
 import { createApplication } from "@/server/services/applications/transition";
 import { matchDoNotAsk } from "@/server/services/forms/do-not-ask";
 import { ensureDraft, loadFormSnapshot, removeQuestion } from "@/server/services/forms/editor";
@@ -199,6 +200,30 @@ describe("the snow behavioral questions change", () => {
       // The applicant's copy of the form never carries the staff notes.
       expect(JSON.stringify(form)).not.toContain("Red flag");
       expect(JSON.stringify(form)).not.toContain("staffGuidance");
+    });
+  });
+
+  it("shows staff the notes and the Blue check on the profile", async () => {
+    await withRollback(db, async (tx) => {
+      await runChanges(tx, CHANGES);
+      const passes = await newApplication(tx);
+      const fails = await newApplication(tx);
+      const form = (await loadApplicationForm(tx, passes))!;
+      const id = (key: string) => form.questions.find((q) => q.questionKey === key)!.questionVersionId;
+      await saveAnswer(tx, { applicationId: passes, questionVersionId: id("best_boss_blue"), revision: 0, value: "Blue. Dana was fair and showed up." });
+      await saveAnswer(tx, { applicationId: fails, questionVersionId: id("best_boss_blue"), revision: 0, value: "My best boss: Blue team lead Dana." });
+
+      const profile = (await loadProfile(tx, passes, "hiring_manager"))!;
+      const answers = Object.fromEntries(profile.answers.map((a) => [a.questionKey, a]));
+      expect(answers.best_boss_blue).toMatchObject({ startsWith: "pass", value: "Blue. Dana was fair and showed up." });
+      expect(answers.best_boss_blue!.staffGuidance).toContain("Pass or fail only");
+      // Unanswered: notes but no badge. Seeded questions: neither.
+      expect(answers.missed_commitment).toMatchObject({ startsWith: null, value: null });
+      expect(answers.missed_commitment!.staffGuidance).toContain("Red flag");
+      expect(answers.age_18_plus).toMatchObject({ startsWith: null, staffGuidance: null });
+
+      const other = (await loadProfile(tx, fails, "viewer"))!;
+      expect(other.answers.find((a) => a.questionKey === "best_boss_blue")!.startsWith).toBe("fail");
     });
   });
 

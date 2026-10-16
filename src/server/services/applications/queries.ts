@@ -22,13 +22,17 @@ import {
   pipelineStage,
   questionVersion,
   role,
+  GROUP_INTERVIEW_ARRIVALS,
   sourceEnum,
   suppression,
+  type GroupInterviewArrival,
   type Milestone,
   type QuestionOption,
 } from "@/db/schema";
 import type { UserRole } from "@/server/auth/roles";
+import { checkStartsWith, type StartsWithResult } from "../forms/starts-with";
 import { countUnhandledInbound, unhandledInboundCountSql } from "../messaging/inbox";
+import { describeReplySpeed, replySpeedForPerson, type ReplySpeed } from "../messaging/reply-speed";
 import { addDays, centralInstant } from "../time";
 import { stageBeforeHire, undoPreview, type UndoPreview } from "./corrections";
 import { isOpenCheck } from "./transition";
@@ -53,6 +57,8 @@ export type ListFilters = {
   source?: Source | "none";
   entryCodeId?: string | "none";
   sessionId?: string | "none";
+  // Group interview arrival; "none" = not recorded.
+  arrival?: GroupInterviewArrival | "none";
   // Central calendar dates applied to started_at.
   from?: string;
   to?: string;
@@ -77,6 +83,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function parseListFilters(params: SearchParams, openingId: string): ListFilters {
   const status = first(params, "status");
   const source = first(params, "source");
+  const arrival = first(params, "arrival");
   const from = first(params, "from");
   const to = first(params, "to");
   const page = Number(first(params, "page") ?? "1");
@@ -87,6 +94,10 @@ export function parseListFilters(params: SearchParams, openingId: string): ListF
     source: source && (source === "none" || (SOURCES as readonly string[]).includes(source)) ? (source as Source | "none") : undefined,
     entryCodeId: first(params, "code"),
     sessionId: first(params, "session"),
+    arrival:
+      arrival && (arrival === "none" || (GROUP_INTERVIEW_ARRIVALS as readonly string[]).includes(arrival))
+        ? (arrival as GroupInterviewArrival | "none")
+        : undefined,
     from: from && DATE.test(from) ? from : undefined,
     to: to && DATE.test(to) ? to : undefined,
     onHold: first(params, "hold") === "1",
@@ -106,6 +117,7 @@ export function listFilterParams(filters: ListFilters, extra: Record<string, str
   if (filters.source) params.set("source", filters.source);
   if (filters.entryCodeId) params.set("code", filters.entryCodeId);
   if (filters.sessionId) params.set("session", filters.sessionId);
+  if (filters.arrival) params.set("arrival", filters.arrival);
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.onHold) params.set("hold", "1");
@@ -373,6 +385,9 @@ function listWhere(filters: ListFilters, role: UserRole): SQL {
   if (filters.sessionId) {
     parts.push(filters.sessionId === "none" ? isNull(application.attributedSessionId) : eq(application.attributedSessionId, filters.sessionId));
   }
+  if (filters.arrival) {
+    parts.push(filters.arrival === "none" ? isNull(application.groupInterviewArrival) : eq(application.groupInterviewArrival, filters.arrival));
+  }
   if (filters.onHold) parts.push(eq(application.onHold, true));
   if (filters.attention) parts.push(ATTENTION_MATCH);
   if (filters.conflicts) parts.push(CONFLICT_MATCH);
@@ -552,6 +567,10 @@ export type ProfileAnswer = {
   sectionKey: string;
   value: string | null;
   attention: boolean;
+  // Staff-only "What to look for" notes of the version the applicant saw.
+  staffGuidance: string | null;
+  // The starting-word check, when the question has one and it was answered.
+  startsWith: StartsWithResult | null;
 };
 
 export type ProfileEvent = {
@@ -702,6 +721,7 @@ export type Profile = {
     indeedAppliedOn: string | null;
     formVersion: number;
     excludeFromAnalysis: boolean;
+    groupInterviewArrival: GroupInterviewArrival | null;
   };
   person: {
     id: string;
@@ -729,6 +749,8 @@ export type Profile = {
   stages: StageOption[];
   // Unhandled inbound texts among the messages shown (the inbox's rule).
   unhandledTexts: number;
+  // How fast the person replies to our messages by text, with its one-line label.
+  replySpeed: ReplySpeed & { label: string };
   // The change "Undo last change" would void, named in its confirmation.
   undo: UndoPreview | null;
   // Where "Rescind hire" puts the application back by default; null unless hired.
@@ -780,8 +802,25 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
   const { app, who } = head;
   const staff = viewer !== "viewer";
 
-  const [answers, eventLog, notes, messages, consents, offers, checks, stints, returningApps, returningStints, texting, conflicts, stages, picklists, unhandledTexts, sessions] =
-    await Promise.all([
+  const [
+    answers,
+    eventLog,
+    notes,
+    messages,
+    consents,
+    offers,
+    checks,
+    stints,
+    returningApps,
+    returningStints,
+    texting,
+    conflicts,
+    stages,
+    picklists,
+    unhandledTexts,
+    sessions,
+    replySpeed,
+  ] = await Promise.all([
       loadAnswers(db, app.id, app.formVersionId),
       loadEvents(db, app.id),
       loadNotes(db, app.id, viewer),
@@ -798,6 +837,7 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
       loadPicklists(db, head.employerId, app.roleId),
       countUnhandledInbound(db, { applicationId: app.id, personId: who.id }),
       staff ? loadSessionChoices(db, app.openingId) : Promise.resolve([]),
+      replySpeedForPerson(db, who.id),
     ]);
 
   return {
@@ -840,6 +880,7 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
       indeedAppliedOn: app.indeedAppliedOn,
       formVersion: head.formVersionNumber,
       excludeFromAnalysis: app.excludeFromAnalysis,
+      groupInterviewArrival: app.groupInterviewArrival,
     },
     person: {
       id: who.id,
@@ -869,6 +910,7 @@ export async function loadProfile(db: Db, applicationId: string, viewer: UserRol
     voidedStints: stints.filter((s) => Boolean(s.voidedAt)),
     stages,
     unhandledTexts,
+    replySpeed: { ...replySpeed, label: describeReplySpeed(replySpeed) },
     undo: eventLog.undo,
     rescindStageId: app.status === "hired" ? stageBeforeHire(eventLog.rows, stages) : null,
     sessions,
@@ -905,6 +947,8 @@ async function loadAnswers(db: Db, applicationId: string, formVersionId: string)
     sectionKey: row.item.sectionKey,
     value: formatAnswer(row.answer, row.version),
     attention: row.answer ? answerMatchesAttention(row.answer, row.item.attentionValues) : false,
+    staffGuidance: row.version.staffGuidance,
+    startsWith: row.version.startsWithCheck ? checkStartsWith(row.answer?.valueText, row.version.startsWithCheck) : null,
   }));
 }
 

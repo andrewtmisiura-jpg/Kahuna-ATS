@@ -1,14 +1,16 @@
 import { eq } from "drizzle-orm";
 import { sourceTakesDetail } from "@/components/applicant/sources";
 import type { Db } from "@/db";
-import { application, groupSession, sourceEnum } from "@/db/schema";
+import { application, GROUP_INTERVIEW_ARRIVALS, groupSession, sourceEnum, type GroupInterviewArrival } from "@/db/schema";
+import type { UserRole } from "@/server/auth/roles";
 import { staffActor } from "../actor";
 import { diffChanges, writeAudit } from "../audit";
 
 // Staff edits to an application's details on the profile (DATA_MODEL.md,
-// application): how they heard about us (source and its detail) and the group
-// session the application is attributed to. Both are audited; the detail is PII
-// text, so its values are recorded as "[changed]".
+// application): how they heard about us (source and its detail), the group
+// session the application is attributed to and how they arrived at the group
+// interview. All are audited; the detail is PII text, so its values are recorded
+// as "[changed]".
 
 export type DetailErrorCode =
   | "application_not_found"
@@ -16,7 +18,9 @@ export type DetailErrorCode =
   | "detail_too_long"
   | "session_not_found"
   | "session_wrong_opening"
-  | "session_canceled";
+  | "session_canceled"
+  | "invalid_arrival"
+  | "arrival_not_allowed";
 
 export class DetailError extends Error {
   constructor(
@@ -130,6 +134,45 @@ export async function setAttributedSession(db: Db, input: SetSessionInput): Prom
         { attributedSessionId: sessionId, attributionMethod },
         ["attributedSessionId", "attributionMethod"],
       ),
+      occurredAt: now,
+    });
+    return { changed: true };
+  });
+}
+
+export type SetArrivalInput = {
+  applicationId: string;
+  userId: string;
+  // Checked here as well as in the action: Viewers only read arrival.
+  role: UserRole;
+  // Null clears it ("Not recorded").
+  arrival: GroupInterviewArrival | null;
+  now?: Date;
+};
+
+// Records whether the person showed up on time to the group interview, from the
+// profile or the session page. Every change, including clearing it, is audited.
+export async function setGroupInterviewArrival(db: Db, input: SetArrivalInput): Promise<{ changed: boolean }> {
+  if (input.role !== "admin" && input.role !== "hiring_manager") {
+    throw new DetailError("arrival_not_allowed", "Only Admins and Hiring Managers can record arrival");
+  }
+  const arrival = input.arrival ?? null;
+  if (arrival !== null && !(GROUP_INTERVIEW_ARRIVALS as readonly string[]).includes(arrival)) {
+    throw new DetailError("invalid_arrival", "Pick on time, late, did not attend or not recorded");
+  }
+  const now = input.now ?? new Date();
+  return db.transaction(async (tx) => {
+    const before = await lockApplication(tx, input.applicationId);
+    if (before.groupInterviewArrival === arrival) return { changed: false };
+    await tx.update(application).set({ groupInterviewArrival: arrival, updatedAt: now }).where(eq(application.id, before.id));
+    await writeAudit(tx, {
+      actor: staffActor(input.userId),
+      action: "application.arrival_change",
+      entityType: "application",
+      entityId: before.id,
+      personId: before.personId,
+      applicationId: before.id,
+      changes: { groupInterviewArrival: { from: before.groupInterviewArrival, to: arrival } },
       occurredAt: now,
     });
     return { changed: true };

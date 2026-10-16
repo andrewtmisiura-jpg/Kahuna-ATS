@@ -206,3 +206,16 @@ export const SEASON_RATING_LABELS: Record<string, string> = {
 
 export const OPT_OUT_WARNING =
   "This person has opted out of texts from all Kahuna numbers. Ask them to text START to 763-292-2259 before dispatch texts will reach them.";
+
+// Group interview arrival (application.group_interview_arrival); null is "Not recorded".
+export const ARRIVAL_OPTIONS = [
+  { value: "on_time", label: "On time" },
+  { value: "late", label: "Late" },
+  { value: "did_not_attend", label: "Did not attend" },
+] as const;
+
+export type ArrivalValue = (typeof ARRIVAL_OPTIONS)[number]["value"];
+
+export function arrivalLabel(value: ArrivalValue | null | undefined): string {
+  return ARRIVAL_OPTIONS.find((option) => option.value === value)?.label ?? "Not recorded";
+}

@@ -1,8 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import type { Profile } from "@/server/services/applications/queries";
+import { STARTS_WITH_LABELS } from "@/server/services/forms/starts-with";
+import { GuidanceToggle } from "./guidance-toggle";
 import { Empty, Section } from "./section";
 
-// Answers with the wording of the question version the applicant saw.
+// Answers with the wording of the question version the applicant saw. A question
+// with staff notes gets a folded "What to look for"; one with a starting-word
+// check shows whether the answer followed the instruction.
 export function AnswersSection({ profile }: { profile: Profile }) {
   const { sections, answers, application } = profile;
   const answered = answers.filter((a) => a.value !== null).length;
@@ -29,6 +33,19 @@ export function AnswersSection({ profile }: { profile: Profile }) {
                         <Badge variant="outline" className="border-amber-400 text-amber-800">
                           attention
                         </Badge>
+                      ) : null}
+                      {a.startsWith ? (
+                        <Badge
+                          variant="outline"
+                          className={a.startsWith === "pass" ? "border-emerald-500 text-emerald-800 dark:text-emerald-200" : "border-amber-400 text-amber-800 dark:text-amber-200"}
+                        >
+                          {STARTS_WITH_LABELS[a.startsWith]}
+                        </Badge>
+                      ) : null}
+                      {a.staffGuidance ? (
+                        <div className="basis-full">
+                          <GuidanceToggle guidance={a.staffGuidance} />
+                        </div>
                       ) : null}
                     </dd>
                   </div>

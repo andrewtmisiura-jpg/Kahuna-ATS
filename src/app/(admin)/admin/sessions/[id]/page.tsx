@@ -1,6 +1,7 @@
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrivalSelect } from "@/components/admin/applicants/arrival-select";
 import { formatCentralDateTime, fullName } from "@/components/admin/settings/format";
 import { Notice } from "@/components/admin/settings/fields";
 import { pageAccess } from "@/components/admin/settings/page-access";
@@ -18,7 +19,8 @@ import { getSession, listSessionOpenings } from "@/server/services/config/sessio
 export const metadata = { title: "Group session" };
 
 // One session: its details, its QR, the code's scan counts and the applicants
-// attributed to it. Admins and Hiring Managers.
+// attributed to it, each with an arrival select so staff can mark who came on
+// time right after the group interview. Admins and Hiring Managers.
 export default async function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const access = await pageAccess(["admin", "hiring_manager"]);
   if (!access.ok) return access.view;
@@ -116,8 +118,9 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
           <CardTitle>Applicants from this session</CardTitle>
           <CardDescription>
             <span className="font-medium text-foreground">{session.startedCount}</span> started,{" "}
-            <span className="font-medium text-foreground">{session.submittedCount}</span> submitted. Attendee names from the sign-up sheet and
-            stars arrive Nov 6. Someone who scanned the role QR at this session can be added from their profile.
+            <span className="font-medium text-foreground">{session.submittedCount}</span> submitted. Mark each person&apos;s arrival after the
+            session; every change is recorded. Attendee names from the sign-up sheet and stars arrive Nov 6. Someone who scanned the role QR at
+            this session can be added from their profile.
           </CardDescription>
           {session.startedCount > 0 ? (
             <Link
@@ -139,6 +142,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
                   <TableHead>Stage</TableHead>
                   <TableHead className="hidden sm:table-cell">Started</TableHead>
                   <TableHead>Submitted</TableHead>
+                  <TableHead>Arrival</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -155,6 +159,15 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{formatCentralDateTime(a.startedAt)}</TableCell>
                     <TableCell>{a.submittedAt ? formatCentralDateTime(a.submittedAt) : <span className="text-muted-foreground">Not yet</span>}</TableCell>
+                    <TableCell>
+                      <ArrivalSelect
+                        key={a.groupInterviewArrival ?? "none"}
+                        applicationId={a.applicationId}
+                        value={a.groupInterviewArrival}
+                        canAct
+                        label={`Arrival for ${fullName(a.firstName, a.lastName)}`}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

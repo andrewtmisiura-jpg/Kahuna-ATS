@@ -8,14 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setApplicationSession, setIndeedAppliedOn, updateApplicationSource } from "@/server/actions/admin/applications";
 import type { Profile } from "@/server/services/applications/queries";
+import { ArrivalSelect } from "./arrival-select";
 import { ActionNotice, Field, NativeSelect } from "./fields";
 import { ENTRY_CHANNEL_LABELS, formatCalendarDate, formatDateTime } from "./format";
 import { Rows, Section } from "./section";
 import { useAdminAction } from "./use-admin-action";
 
-// Source, entry code, session, origin, form version, times and the Indeed apply
-// date. Staff can change how they heard about us and the attributed group session;
-// both changes are audited.
+// Source, entry code, session, group interview arrival, text reply speed, origin,
+// form version, times and the Indeed apply date. Staff can change how they heard
+// about us, the attributed group session and the arrival; each change is audited.
 
 // The applicant-facing labels, so staff pick from the same list the applicant saw.
 export function sourceLabel(source: string | null): string | null {
@@ -73,6 +74,21 @@ export function DetailsSection({ profile, canAct }: { profile: Profile; canAct: 
                   ) : null}
                 </EditableValue>
               ),
+          },
+          {
+            label: "Group interview arrival",
+            value: (
+              <ArrivalSelect key={app.groupInterviewArrival ?? "none"} applicationId={app.id} value={app.groupInterviewArrival} canAct={canAct} />
+            ),
+          },
+          {
+            label: "Text reply speed",
+            value: (
+              <span className="grid gap-0.5">
+                <span>{profile.replySpeed.label}</span>
+                <span className="text-xs text-muted-foreground">Email replies go to the hiring inbox and are not counted.</span>
+              </span>
+            ),
           },
           { label: "Started", value: formatDateTime(app.startedAt) },
           { label: "Submitted", value: app.submittedAt ? formatDateTime(app.submittedAt) : <span className="text-muted-foreground">not yet</span> },

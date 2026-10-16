@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import type { ListFilterOptions, ListFilters } from "@/server/services/applications/queries";
 import { LIST_STATUSES, SOURCES } from "@/server/services/applications/queries";
 import { NativeSelect } from "./fields";
-import { SOURCE_LABELS } from "./format";
+import { ARRIVAL_OPTIONS, SOURCE_LABELS } from "./format";
 
 // The filters are the URL: a plain GET form the browser serialises, so a filtered
 // list can be bookmarked and the profile's next and previous buttons can carry it.
@@ -27,7 +27,9 @@ export function ListFiltersForm({ filters, options }: { filters: ListFilters; op
   const router = useRouter();
   const submit = () => form.current?.requestSubmit();
   const active =
-    Boolean(filters.stageId || filters.status || filters.source || filters.entryCodeId || filters.sessionId || filters.from || filters.to) ||
+    Boolean(
+      filters.stageId || filters.status || filters.source || filters.entryCodeId || filters.sessionId || filters.arrival || filters.from || filters.to,
+    ) ||
     filters.onHold ||
     filters.attention ||
     filters.conflicts;
@@ -99,6 +101,18 @@ export function ListFiltersForm({ filters, options }: { filters: ListFilters; op
                 </option>
               ))}
               <option value="none">No session</option>
+            </NativeSelect>
+          </label>
+          <label className="grid gap-1 text-xs text-muted-foreground">
+            Arrival
+            <NativeSelect name="arrival" defaultValue={filters.arrival ?? ""} onChange={submit}>
+              <option value="">Any arrival</option>
+              {ARRIVAL_OPTIONS.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+              <option value="none">Not recorded</option>
             </NativeSelect>
           </label>
           <label className="grid gap-1 text-xs text-muted-foreground">
