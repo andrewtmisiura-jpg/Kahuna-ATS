@@ -4,6 +4,7 @@ import { and, eq, sql as sqlRaw } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql, type Db } from "@/db";
 import { CHANGES, runChanges } from "@/db/changes";
+import { SNOW_BEHAVIORAL_QUESTIONS } from "@/db/changes/snow-behavioral-questions";
 import { answer, auditLog, entryCode, formItem, formVersion, message, note, question, questionVersion } from "@/db/schema";
 import { LAUNCH_ENTRY_CODES, seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
@@ -392,6 +393,12 @@ describe("arrival, reply speed and the starting-word check", () => {
       expect(headers.indexOf("best_boss_blue check")).toBe(headers.indexOf("best_boss_blue (v1)") + 1);
       // Only the checked lineage gets a check column.
       expect(headers.filter((h) => h.endsWith(" check"))).toEqual(["best_boss_blue check"]);
+      // Columns follow the form: the How you work section is last, so its five
+      // questions come after every earlier section's, in the owner's order, even
+      // though the editor numbers sort_order within each section.
+      const questionHeaders = headers.filter((h) => / \(v\d+\)$/.test(h));
+      expect(questionHeaders.slice(-5)).toEqual(SNOW_BEHAVIORAL_QUESTIONS.map((q) => `${q.key} (v1)`));
+      expect(questionHeaders[0]).toBe("age_18_plus (v1)");
 
       const row = (id: string) => rows.find((r) => r.application_id === id)!;
       expect(row(pass)).toMatchObject({

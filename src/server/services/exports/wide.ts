@@ -90,8 +90,15 @@ type QuestionColumn = {
   type: (typeof questionVersion.$inferSelect)["type"];
   options: QuestionOption[] | null;
   startsWithCheck: string | null;
-  sortOrder: number;
 };
+
+// Where an item sits on its form: the section's place in form_version.sections,
+// then sort_order, which the editor numbers within each section.
+type FormPosition = { section: number; sortOrder: number };
+
+function comparePositions(a: FormPosition, b: FormPosition): number {
+  return a.section - b.section || a.sortOrder - b.sortOrder;
+}
 
 const CHOICE_TYPES = new Set(["single_choice", "multi_choice"]);
 
@@ -262,7 +269,8 @@ async function milestoneTimes(
 }
 
 // One column per question version used by the pinned forms, ordered by where the
-// lineage first appears on the form, then key, then version.
+// lineage first appears on the form (section order, then sort order within the
+// section, the same order the question editor shows), then key, then version.
 async function questionColumns(db: Db, formVersionIds: string[]): Promise<QuestionColumn[]> {
   if (formVersionIds.length === 0) return [];
   const items = await db
@@ -273,24 +281,31 @@ async function questionColumns(db: Db, formVersionIds: string[]): Promise<Questi
       type: questionVersion.type,
       options: questionVersion.options,
       startsWithCheck: questionVersion.startsWithCheck,
+      sectionKey: formItem.sectionKey,
+      sections: formVersion.sections,
       sortOrder: formItem.sortOrder,
     })
     .from(formItem)
+    .innerJoin(formVersion, eq(formVersion.id, formItem.formVersionId))
     .innerJoin(questionVersion, eq(questionVersion.id, formItem.questionVersionId))
     .innerJoin(question, eq(question.id, questionVersion.questionId))
     .where(inArray(formItem.formVersionId, formVersionIds));
 
   const byVersion = new Map<string, QuestionColumn>();
-  const lineageSort = new Map<string, number>();
-  for (const item of items) {
-    const existing = byVersion.get(item.questionVersionId);
-    if (!existing) byVersion.set(item.questionVersionId, item);
-    else if (item.sortOrder < existing.sortOrder) existing.sortOrder = item.sortOrder;
-    lineageSort.set(item.key, Math.min(lineageSort.get(item.key) ?? Infinity, item.sortOrder));
+  const lineagePosition = new Map<string, FormPosition>();
+  for (const { sectionKey, sections, sortOrder, ...column } of items) {
+    if (!byVersion.has(column.questionVersionId)) byVersion.set(column.questionVersionId, column);
+    // An item naming a section the form does not list goes last, as in the editor.
+    const index = sections.findIndex((section) => section.key === sectionKey);
+    const position = { section: index === -1 ? Number.MAX_SAFE_INTEGER : index, sortOrder };
+    const first = lineagePosition.get(column.key);
+    if (!first || comparePositions(position, first) < 0) lineagePosition.set(column.key, position);
   }
   return [...byVersion.values()].sort(
     (a, b) =>
-      lineageSort.get(a.key)! - lineageSort.get(b.key)! || a.key.localeCompare(b.key) || a.version - b.version,
+      comparePositions(lineagePosition.get(a.key)!, lineagePosition.get(b.key)!) ||
+      a.key.localeCompare(b.key) ||
+      a.version - b.version,
   );
 }
 
