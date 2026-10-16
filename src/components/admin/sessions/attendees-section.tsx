@@ -146,6 +146,7 @@ function AddAttendeeForm({ sessionId }: { sessionId: string }) {
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const typed = name.trim();
+    setAdded(null);
     run(
       () => addAttendeeAction({ sessionId, nameAsWritten: name, mobile: mobile.trim() || null, source }),
       (data) => {
