@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import postgres from "postgres";
 
 // Runs only under the development sign-in bypass (DEV_AUTH_EMAIL in .env).
 test.describe("admin shell", () => {
@@ -17,14 +19,51 @@ test.describe("admin shell", () => {
       await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
     }
   });
+});
 
-  test("Settings > Texting shows the Quo connection and never a secret", async ({ page }) => {
+// The Quo connection card with a signing secret really stored, so "never a secret"
+// can fail: the stored value must appear nowhere in the page, its RSC payload
+// included, or in the raw server response.
+test.describe("Settings > Texting with a stored Quo secret", () => {
+  test.skip(!process.env.DEV_AUTH_EMAIL || !process.env.DATABASE_URL, "needs DEV_AUTH_EMAIL and DATABASE_URL");
+
+  const ours = "whsec_" + randomBytes(24).toString("base64");
+  let sql: ReturnType<typeof postgres>;
+  let inserted = false;
+  let secret = ours;
+
+  test.beforeAll(async () => {
+    sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+    const rows = await sql`
+      insert into integration_secret (key, value, note) values ('quo_webhook_secret', ${ours}, 'Playwright: admin-pages.spec.ts')
+      on conflict (key) do nothing returning key`;
+    inserted = rows.length > 0;
+    // A developer's real stored secret stays as it is, and the page must not show that one either.
+    const [row] = await sql<{ value: string }[]>`select value from integration_secret where key = 'quo_webhook_secret'`;
+    secret = row!.value;
+  });
+
+  test.afterAll(async () => {
+    if (!sql) return;
+    if (inserted) await sql`delete from integration_secret where key = 'quo_webhook_secret' and value = ${ours}`;
+    await sql.end();
+  });
+
+  test("Settings > Texting shows the Quo connection and never the secret", async ({ page }) => {
     await page.goto("/admin/settings/texting");
     await expect(page.getByText("Quo connection", { exact: true })).toBeVisible();
     await expect(page.getByText("Webhook (replies and delivery updates)")).toBeVisible();
-    await expect(page.getByText(/^(Connected|Not connected)/).first()).toBeVisible();
+    await expect(page.getByText(/^Connected/).first()).toBeVisible();
     await expect(page.getByText(/^(Last setup:|No setup has run yet)/)).toBeVisible();
-    expect(await page.content()).not.toContain("whsec_");
+
+    const fragments = [secret, secret.replace(/^whsec_/, ""), secret.slice(-16)];
+    const html = await page.content();
+    const raw = await (await page.request.get("/admin/settings/texting")).text();
+    const rsc = await (await page.request.get("/admin/settings/texting", { headers: { RSC: "1" } })).text();
+    for (const text of [html, raw, rsc]) {
+      expect(text.length).toBeGreaterThan(0);
+      for (const fragment of fragments) expect(text).not.toContain(fragment);
+    }
   });
 });
 
