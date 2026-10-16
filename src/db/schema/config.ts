@@ -51,11 +51,18 @@ export const employer = pgTable(
     dailySendCap: integer().notNull().default(200),
     helpContact: text(),
     timezone: text().notNull().default("America/Chicago"),
+    // The one-on-one booking link that invites carry as {booking_link}. The service accepts https only.
+    bookingLinkUrl: text(),
+    // AI scoring calls per Central day across all roles; jobs past it wait for the next day.
+    scoringDailyCap: integer().notNull().default(100),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     archivedAt: timestamptz(),
   },
-  (table) => [phoneUsCheck("employer_sms_from_e164_phone_us", table.smsFromE164)],
+  (table) => [
+    phoneUsCheck("employer_sms_from_e164_phone_us", table.smsFromE164),
+    check("employer_scoring_daily_cap_positive", sql`${table.scoringDailyCap} > 0`),
+  ],
 );
 
 // Permanent job definition: pipeline, questions, rubric.

@@ -2,7 +2,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 // Postgres enum types from the "Enumerations" section of DATA_MODEL.md.
 // Adding a value later is additive; renaming or removing one is not allowed.
-// Only the enums Phase 1 tables use are created here.
+// The Phase 1 enums come first, then the Phase 2 ones (drizzle/0007_phase2_tables.sql).
 
 export const MILESTONES = [
   "started",
@@ -141,3 +141,54 @@ export const hireOutcomeEnum = pgEnum("hire_outcome", ["active", "completed_seas
 export const hireVoidKindEnum = pgEnum("hire_void_kind", ["entered_in_error", "rescinded"]);
 export const separationTypeEnum = pgEnum("separation_type", ["voluntary", "involuntary"]);
 export const seasonEndRatingEnum = pgEnum("season_end_rating", ["reliable", "mixed", "unreliable", "never_worked"]);
+
+// Phase 2: sessions, scoring, interviews and jobs. Each list is exported so screens
+// and services read the values from here rather than repeating them.
+
+export const JOB_STATUSES = ["queued", "running", "retry", "succeeded", "dead"] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
+export const jobStatusEnum = pgEnum("job_status", JOB_STATUSES);
+
+export const ATTENDEE_SOURCES = ["paper_sheet", "door_checkin", "staff_added"] as const;
+export type AttendeeSource = (typeof ATTENDEE_SOURCES)[number];
+export const attendeeSourceEnum = pgEnum("attendee_source", ATTENDEE_SOURCES);
+
+export const STAR_MARKS = ["star", "concern"] as const;
+export type StarMark = (typeof STAR_MARKS)[number];
+export const starMarkEnum = pgEnum("star_mark", STAR_MARKS);
+
+export const SCORING_MODES = ["off", "hidden", "visible"] as const;
+export type ScoringMode = (typeof SCORING_MODES)[number];
+export const scoringModeEnum = pgEnum("scoring_mode", SCORING_MODES);
+
+// The 1 to 100 overall_score replaces the brief's Advance / Review / Decline; there is no label enum.
+export const AI_SCORE_STATUSES = ["queued", "succeeded", "failed", "invalid_output"] as const;
+export type AiScoreStatus = (typeof AI_SCORE_STATUSES)[number];
+export const aiScoreStatusEnum = pgEnum("ai_score_status", AI_SCORE_STATUSES);
+
+export const REVIEW_DECISION_VALUES = ["advance", "hold", "decline"] as const;
+export type ReviewDecisionValue = (typeof REVIEW_DECISION_VALUES)[number];
+export const reviewDecisionValueEnum = pgEnum("review_decision_value", REVIEW_DECISION_VALUES);
+
+export const INTERVIEW_KINDS = ["one_on_one", "phone_screen"] as const;
+export type InterviewKind = (typeof INTERVIEW_KINDS)[number];
+export const interviewKindEnum = pgEnum("interview_kind", INTERVIEW_KINDS);
+
+export const INTERVIEW_STATUSES = ["scheduled", "held", "no_show", "canceled"] as const;
+export type InterviewStatus = (typeof INTERVIEW_STATUSES)[number];
+export const interviewStatusEnum = pgEnum("interview_status", INTERVIEW_STATUSES);
+
+// The type is interview_grade_value, not interview_grade as DATA_MODEL.md first had it:
+// the interview_grade table's row type already takes that name, the same reason the
+// review_decision enum is review_decision_value.
+export const INTERVIEW_GRADES = ["a_plus", "a", "a_minus", "b_plus", "b", "b_minus", "c_plus", "c", "c_minus", "d", "f"] as const;
+export type InterviewGrade = (typeof INTERVIEW_GRADES)[number];
+export const interviewGradeValueEnum = pgEnum("interview_grade_value", INTERVIEW_GRADES);
+
+export const INTERVIEW_RECOMMENDATIONS = ["hire", "maybe", "no_hire"] as const;
+export type InterviewRecommendation = (typeof INTERVIEW_RECOMMENDATIONS)[number];
+export const interviewRecommendationEnum = pgEnum("interview_recommendation", INTERVIEW_RECOMMENDATIONS);
+
+export const ASSESSMENT_RESULTS = ["pass", "fail", "did_not_attempt"] as const;
+export type AssessmentResult = (typeof ASSESSMENT_RESULTS)[number];
+export const assessmentResultEnum = pgEnum("assessment_result", ASSESSMENT_RESULTS);
