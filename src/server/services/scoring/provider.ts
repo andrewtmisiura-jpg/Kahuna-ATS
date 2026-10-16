@@ -1,4 +1,5 @@
 import { env, isProduction, type Env } from "@/config/env";
+import { anthropicScorerFromEnv } from "./anthropic";
 import { fakeScorer } from "./fake";
 import type { Scorer } from "./types";
 
@@ -18,11 +19,11 @@ export function anthropicKeyConfigured(config: Pick<Env, "ANTHROPIC_API_KEY"> = 
   return Boolean(config.ANTHROPIC_API_KEY);
 }
 
+let live: Scorer | undefined;
+
+// The live scorer throws a ScorerError of kind "unavailable" when ANTHROPIC_API_KEY is
+// not set; the job runner then leaves the jobs queued and alerts.
 export function getScorer(provider: ScoringProvider = scoringProvider()): Scorer {
-  if (provider === "live") {
-    // The scoring build puts the Anthropic scorer here: structured output with a strict
-    // schema, the model id in config, no tools.
-    throw new Error("Live scoring is not built yet");
-  }
+  if (provider === "live") return (live ??= anthropicScorerFromEnv());
   return fakeScorer;
 }

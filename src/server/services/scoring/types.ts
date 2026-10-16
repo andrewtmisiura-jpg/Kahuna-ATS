@@ -67,6 +67,10 @@ export type ScoreFailed = {
   rawOutput: unknown;
 };
 
+// ScoreFailed.error when the model declined to grade (stop_reason "refusal"), so the
+// profile can say it declined rather than that the call failed.
+export const REFUSAL_ERROR = "refusal";
+
 export type ScoreResult = ScoreSucceeded | ScoreFailed;
 
 // What scoreWithRubric returns: a success always carries the app's overall score.
@@ -74,7 +78,8 @@ export type ScoredResult = (ScoreSucceeded & { overallScore: number }) | ScoreFa
 
 // The live Anthropic scorer and the fake both implement this. A scorer returns failed or
 // invalid_output for a result that should be stored as not scored, and throws for an
-// error worth retrying (the job runner decides), such as the network or a 5xx.
+// error worth retrying (the job runner decides), such as the network or a 5xx; a
+// ScorerError (errors.ts) also says whether a retry in minutes can help.
 export interface Scorer {
   score(rubric: RubricForScoring, input: ScoringInput): Promise<ScoreResult>;
 }

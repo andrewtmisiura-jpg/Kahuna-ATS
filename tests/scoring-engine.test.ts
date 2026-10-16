@@ -7,6 +7,7 @@ import {
   rubricWeights,
   scoreWithRubric,
 } from "@/server/services/scoring/engine";
+import { ScorerError } from "@/server/services/scoring/errors";
 import { FAKE_MODEL_ID, FAKE_PROMPT_VERSION, fakeScorer } from "@/server/services/scoring/fake";
 import { anthropicKeyConfigured, getScorer, scoringProvider } from "@/server/services/scoring/provider";
 import type { RubricForScoring, ScoreResult, Scorer, ScoringInput } from "@/server/services/scoring/types";
@@ -189,6 +190,17 @@ describe("scoreWithRubric", () => {
     }
   });
 
+  it("turns a flag that is not on the rubric's list into invalid_output, and drops repeated flags", async () => {
+    const graded = [
+      { criterionKey: "reliability", score: 4 },
+      { criterionKey: "problem_solving", score: 2 },
+    ];
+    const unknown = await scoreWithRubric(RUBRIC, input({}), scorerReturning({ ...success(graded), flags: ["no_example", "too_old"] } as ScoreResult));
+    expect(unknown).toMatchObject({ status: "invalid_output", error: "Flag too_old is not on the rubric's list" });
+    const repeated = await scoreWithRubric(RUBRIC, input({}), scorerReturning({ ...success(graded), flags: ["no_example", "no_example"] } as ScoreResult));
+    expect(repeated).toMatchObject({ status: "succeeded", flags: ["no_example"] });
+  });
+
   it("lets a scorer's thrown error through, so the job runner can retry", async () => {
     const throwing: Scorer = {
       score: async () => {
@@ -210,9 +222,17 @@ describe("which scorer a process uses", () => {
     expect(getScorer()).toBe(fakeScorer);
   });
 
-  it("refuses the live scorer until it is built", () => {
-    expect(() => getScorer("live")).toThrow("Live scoring is not built yet");
+  it("refuses the live scorer while ANTHROPIC_API_KEY is not set, saying so plainly", () => {
+    // vitest.config.mts blanks the key, so nothing in the tests can reach Anthropic.
+    expect(() => getScorer("live")).toThrow(ScorerError);
+    expect(() => getScorer("live")).toThrow("ANTHROPIC_API_KEY is not set, so nothing can be scored");
     expect(getScorer("fake")).toBe(fakeScorer);
+  });
+
+  it("calls claude-opus-5-5 unless SCORING_MODEL names another model", () => {
+    const base = { DATABASE_URL: "postgres://postgres@127.0.0.1:54329/tidepool_test" };
+    expect(envSchema.parse(base).SCORING_MODEL).toBe("claude-opus-5-5");
+    expect(envSchema.parse({ ...base, SCORING_MODEL: "claude-opus-5" }).SCORING_MODEL).toBe("claude-opus-5");
   });
 
   it("reports whether an Anthropic key is set without returning it", () => {
