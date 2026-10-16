@@ -20,6 +20,8 @@ import {
 } from "@/db/schema";
 import { effectiveEvents } from "../applications/replay";
 import { formatPhoneNational, type CsvCell } from "../csv";
+import { checkStartsWith } from "../forms/starts-with";
+import { replySpeedByPerson } from "../messaging/reply-speed";
 import {
   boolCell,
   centralIso,
@@ -36,7 +38,10 @@ import {
 // milestone was reached (from the event log, skipped milestones counting as
 // reached by a later one) and one column per question version answered in the
 // opening, labeled "<key> (v<version>)". Choice answers get a second column with
-// the option labels. Restricted notes never appear here; no notes do.
+// the option labels, and a lineage with a starting-word check gets "<key> check"
+// (pass, fail or blank) after its last version. Group interview arrival and the
+// person's text reply speed sit with the session columns. Restricted notes never
+// appear here; no notes do.
 
 const FIXED_HEADERS = [
   "application_id",
@@ -66,6 +71,9 @@ const FIXED_HEADERS = [
   "attributed_session_starts_at",
   "attributed_session_location",
   "attribution_method",
+  "group_interview_arrival",
+  "median_text_reply_minutes",
+  "text_reply_count",
   "indeed_applied_on",
   "language",
   "form_version",
@@ -81,6 +89,7 @@ type QuestionColumn = {
   version: number;
   type: (typeof questionVersion.$inferSelect)["type"];
   options: QuestionOption[] | null;
+  startsWithCheck: string | null;
   sortOrder: number;
 };
 
@@ -127,12 +136,20 @@ export async function applicationsWide(db: Db, ctx: ExportContext): Promise<Expo
   const reached = await milestoneTimes(db, ids, milestoneByStage);
   const columns = await questionColumns(db, [...new Set(apps.map((row) => row.app.formVersionId))]);
   const answers = await loadAnswers(db, ids);
+  const replySpeeds = await replySpeedByPerson(
+    db,
+    apps.map((row) => row.app.personId),
+  );
+  const checked = new Set(columns.filter((c) => c.startsWithCheck).map((c) => c.key));
+  // A lineage's check column follows its last version column.
+  const endsLineage = (index: number) => columns[index + 1]?.key !== columns[index]!.key;
 
   const headers = [...FIXED_HEADERS];
-  for (const column of columns) {
+  columns.forEach((column, index) => {
     headers.push(columnHeader(column));
     if (CHOICE_TYPES.has(column.type)) headers.push(`${columnHeader(column)} label`);
-  }
+    if (checked.has(column.key) && endsLineage(index)) headers.push(checkHeader(column.key));
+  });
 
   const rows: CsvCell[][] = apps.map((row) => {
     const a = row.app;
@@ -165,6 +182,9 @@ export async function applicationsWide(db: Db, ctx: ExportContext): Promise<Expo
       centralIso(row.attributedStartsAt),
       row.attributedLocation,
       a.attributionMethod,
+      a.groupInterviewArrival,
+      replySpeeds.get(a.personId)?.medianMinutes ?? null,
+      replySpeeds.get(a.personId)?.replies ?? 0,
       a.indeedAppliedOn,
       a.language,
       row.formVersion,
@@ -173,11 +193,18 @@ export async function applicationsWide(db: Db, ctx: ExportContext): Promise<Expo
       centralIso(a.lastActivityAt),
       ...MILESTONES.map((m) => centralIso(times.get(m))),
     ];
-    for (const column of columns) {
+    let check: CsvCell = "";
+    columns.forEach((column, index) => {
       const found = answers.get(`${a.id}:${column.questionVersionId}`);
       cells.push(answerValue(column, found));
       if (CHOICE_TYPES.has(column.type)) cells.push(answerLabels(column, found));
-    }
+      // The version this application answered decides its check.
+      if (found && column.startsWithCheck) check = checkResult(column.startsWithCheck, found);
+      if (checked.has(column.key) && endsLineage(index)) {
+        cells.push(check);
+        check = "";
+      }
+    });
     return cells;
   });
 
@@ -186,6 +213,15 @@ export async function applicationsWide(db: Db, ctx: ExportContext): Promise<Expo
 
 export function columnHeader(column: Pick<QuestionColumn, "key" | "version">): string {
   return `${column.key} (v${column.version})`;
+}
+
+export function checkHeader(key: string): string {
+  return `${key} check`;
+}
+
+// "pass", "fail", or blank when the question has no check or no answer.
+export function checkResult(startsWithCheck: string | null, row: Pick<AnswerRow, "valueText"> | undefined): string {
+  return (startsWithCheck && row ? checkStartsWith(row.valueText, startsWithCheck) : null) ?? "";
 }
 
 // The first non-voided event that moved the application to a stage whose
@@ -236,6 +272,7 @@ async function questionColumns(db: Db, formVersionIds: string[]): Promise<Questi
       version: questionVersion.version,
       type: questionVersion.type,
       options: questionVersion.options,
+      startsWithCheck: questionVersion.startsWithCheck,
       sortOrder: formItem.sortOrder,
     })
     .from(formItem)

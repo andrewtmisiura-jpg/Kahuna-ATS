@@ -67,7 +67,7 @@ const definitions: readonly ExportDefinition[] = [
     name: "applications",
     label: "Applications (wide, per opening)",
     description:
-      "One row per application: person and contact details, source, entry code, session, status, stage, hold, closed outcome and reason, the first time each milestone was reached, and one column per question version answered.",
+      "One row per application: person and contact details, source, entry code, session, group interview arrival, text reply speed, status, stage, hold, closed outcome and reason, the first time each milestone was reached, one column per question version answered, and a pass or fail column for each starting-word check.",
     group: "opening",
     requiresOpening: true,
     acceptsOpening: true,
@@ -78,7 +78,7 @@ const definitions: readonly ExportDefinition[] = [
   {
     name: "answers",
     label: "Answers",
-    description: "One row per answer, with the question key and version, the value and option labels.",
+    description: "One row per answer, with the question key and version, the value, option labels and the starting-word check result.",
     group: "long",
     requiresOpening: false,
     acceptsOpening: true,
@@ -221,7 +221,8 @@ const definitions: readonly ExportDefinition[] = [
   {
     name: "questions",
     label: "Questions and versions",
-    description: "Every question version with its prompt, type, option keys and labels, and the form versions it appears in.",
+    description:
+      "Every question version with its prompt, type, option keys and labels, starting-word check, staff notes on what to look for, and the form versions it appears in.",
     group: "dictionary",
     requiresOpening: false,
     acceptsOpening: false,

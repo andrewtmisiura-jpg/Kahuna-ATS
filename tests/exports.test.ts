@@ -3,10 +3,12 @@ import { createHash } from "node:crypto";
 import { and, eq, sql as sqlRaw } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql, type Db } from "@/db";
-import { answer, auditLog, entryCode, formItem, formVersion, note, question, questionVersion } from "@/db/schema";
+import { CHANGES, runChanges } from "@/db/changes";
+import { answer, auditLog, entryCode, formItem, formVersion, message, note, question, questionVersion } from "@/db/schema";
 import { LAUNCH_ENTRY_CODES, seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { SYSTEM_ACTOR, staffActor, type Actor } from "@/server/services/actor";
+import { setGroupInterviewArrival } from "@/server/services/applications/details";
 import { createApplication, transition } from "@/server/services/applications/transition";
 import { recordScan } from "@/server/services/entry-codes";
 import { EXPORT_NAMES, ExportError, exportFilename, runExport } from "@/server/services/exports";
@@ -339,6 +341,82 @@ describe("wide export", () => {
       { code: "bad_date_range" },
     );
     expect(exportFilename("hires", "Snow 2026/27", new Date("2026-10-23T12:00:00Z"))).toBe("tidepool-hires-Snow_2026_27-2026-10-23.csv");
+  });
+});
+
+describe("arrival, reply speed and the starting-word check", () => {
+  it("adds arrival and reply speed columns, a check column for each checked lineage, and check_result to the answers file", async () => {
+    await withRollback(db, async (tx) => {
+      const now = new Date();
+      const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
+      // Snow form v1 has no check; the owner's change publishes the Blue question.
+      const old = await newSnowApplication(tx, await createPerson(tx, { lastName: "Before" }), minutesAgo(900));
+      await runChanges(tx, CHANGES);
+      const blueId = await questionVersionId(tx, snow.roleId, "best_boss_blue");
+
+      const passPerson = await createPerson(tx, { lastName: "Passes", mobileE164: "+16125550171" });
+      const pass = await newSnowApplication(tx, passPerson, minutesAgo(600));
+      const fail = await newSnowApplication(tx, await createPerson(tx, { lastName: "Fails" }), minutesAgo(500));
+      const blank = await newSnowApplication(tx, await createPerson(tx, { lastName: "Blank" }), minutesAgo(400));
+      await tx.insert(answer).values([
+        { id: uuidv7(), applicationId: pass, questionVersionId: blueId, valueText: "Blue! She trusted us." },
+        { id: uuidv7(), applicationId: fail, questionVersionId: blueId, valueText: "Bluebird Snow was the best." },
+      ]);
+
+      await setGroupInterviewArrival(tx, { applicationId: pass, userId: adminId, role: "admin", arrival: "on_time" });
+      await setGroupInterviewArrival(tx, { applicationId: fail, userId: adminId, role: "admin", arrival: "did_not_attend" });
+
+      // Sent 60 and 20 minutes ago; texts back after 10 and 4 minutes.
+      const msg = (values: Partial<typeof message.$inferInsert>) =>
+        tx.insert(message).values({
+          id: uuidv7(),
+          personId: passPerson,
+          applicationId: pass,
+          toAddress: "+16125550171",
+          fromAddress: "+17632922259",
+          provider: "sink",
+          triggeredByType: "system",
+          direction: "outbound",
+          channel: "sms",
+          status: "sent",
+          ...values,
+        });
+      await msg({ sentAt: minutesAgo(60), createdAt: minutesAgo(61) });
+      await msg({ direction: "inbound", status: "received", body: "On my way", createdAt: minutesAgo(50) });
+      await msg({ channel: "email", sentAt: minutesAgo(20), createdAt: minutesAgo(21) });
+      await msg({ direction: "inbound", status: "received", body: "Got it", createdAt: minutesAgo(16), handledAt: now });
+
+      const file = await runExport(tx, { name: "applications", filters: { openingId: snow.openingId }, actor: staff, now });
+      const { headers, rows } = readTable(file.body);
+      expect(headers).toEqual(expect.arrayContaining(["group_interview_arrival", "median_text_reply_minutes", "text_reply_count", "best_boss_blue check"]));
+      expect(headers.indexOf("best_boss_blue check")).toBe(headers.indexOf("best_boss_blue (v1)") + 1);
+      // Only the checked lineage gets a check column.
+      expect(headers.filter((h) => h.endsWith(" check"))).toEqual(["best_boss_blue check"]);
+
+      const row = (id: string) => rows.find((r) => r.application_id === id)!;
+      expect(row(pass)).toMatchObject({
+        group_interview_arrival: "on_time",
+        median_text_reply_minutes: "7",
+        text_reply_count: "2",
+        "best_boss_blue check": "pass",
+      });
+      expect(row(fail)).toMatchObject({ group_interview_arrival: "did_not_attend", "best_boss_blue check": "fail", text_reply_count: "0", median_text_reply_minutes: "" });
+      expect(row(blank)).toMatchObject({ group_interview_arrival: "", "best_boss_blue check": "" });
+      // An application pinned to v1 never saw the question: blank.
+      expect(row(old)["best_boss_blue check"]).toBe("");
+
+      const answers = readTable((await runExport(tx, { name: "answers", filters: { openingId: snow.openingId }, actor: staff, now })).body);
+      expect(answers.headers.indexOf("check_result")).toBe(answers.headers.indexOf("option_labels") + 1);
+      const blue = answers.rows.filter((r) => r.question_key === "best_boss_blue");
+      expect(Object.fromEntries(blue.map((r) => [r.application_id, r.check_result]))).toEqual({ [pass]: "pass", [fail]: "fail" });
+      expect(answers.rows.filter((r) => r.question_key !== "best_boss_blue").every((r) => r.check_result === "")).toBe(true);
+
+      const dictionary = readTable((await runExport(tx, { name: "questions", filters: {}, actor: staff, now })).body);
+      const blueRow = dictionary.rows.find((r) => r.question_key === "best_boss_blue")!;
+      expect(blueRow.starts_with_check).toBe("blue");
+      expect(blueRow.staff_guidance).toContain("Pass or fail only");
+      expect(dictionary.rows.find((r) => r.question_key === "age_18_plus")!.starts_with_check).toBe("");
+    });
   });
 });
 

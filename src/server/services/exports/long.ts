@@ -36,7 +36,7 @@ import {
   type ExportContext,
   type ExportTable,
 } from "./shared";
-import { answerLabels, answerValue } from "./wide";
+import { answerLabels, answerValue, checkResult } from "./wide";
 
 // The long files: one row per answer, event, message, consent event, session,
 // entry code scan day, offer, background check, hire stint or note. Each takes
@@ -53,6 +53,7 @@ export async function answersLong(db: Db, ctx: ExportContext): Promise<ExportTab
       version: questionVersion.version,
       type: questionVersion.type,
       options: questionVersion.options,
+      startsWithCheck: questionVersion.startsWithCheck,
     })
     .from(answer)
     .innerJoin(application, eq(application.id, answer.applicationId))
@@ -72,6 +73,7 @@ export async function answersLong(db: Db, ctx: ExportContext): Promise<ExportTab
       "type",
       "value",
       "option_labels",
+      "check_result",
       "revision",
       "updated_at",
     ],
@@ -84,6 +86,7 @@ export async function answersLong(db: Db, ctx: ExportContext): Promise<ExportTab
       row.type,
       answerValue({ type: row.type }, row.a),
       answerLabels({ options: row.options }, row.a),
+      checkResult(row.startsWithCheck, row.a),
       row.a.revision,
       centralIso(row.a.updatedAt),
     ]),

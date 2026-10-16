@@ -16,7 +16,8 @@ import { boolCell, centralIso, jsonCell, type ExportTable } from "./shared";
 
 // Dictionary files, so the long files can be read outside the app: openings with
 // their roles and season dates, stages with milestones, picklist options, question
-// versions with prompt text and option keys and labels, and templates. No filters.
+// versions with prompt text, option keys and labels, the starting-word check and
+// the staff notes on what to look for, and templates. No filters.
 
 export async function openingsDictionary(db: Db): Promise<ExportTable> {
   const rows = await db
@@ -171,6 +172,8 @@ export async function questionsDictionary(db: Db): Promise<ExportTable> {
     "option_key",
     "option_label",
     "validation",
+    "starts_with_check",
+    "staff_guidance",
     "meaning_changed",
     "change_note",
     "published_at",
@@ -191,6 +194,8 @@ export async function questionsDictionary(db: Db): Promise<ExportTable> {
       optionKey,
       optionLabel,
       jsonCell(row.v.validation),
+      row.v.startsWithCheck,
+      row.v.staffGuidance,
       boolCell(row.v.meaningChanged),
       row.v.changeNote,
       centralIso(row.v.publishedAt),
