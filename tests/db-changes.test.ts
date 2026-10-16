@@ -76,7 +76,7 @@ async function newApplication(tx: Tx) {
 
 describe("the change list", () => {
   it("lists the snow change first, with its permanent id", () => {
-    expect(CHANGES.map((c) => c.id)).toEqual([ID]);
+    expect(CHANGES[0]?.id).toBe(ID);
   });
 
   it("refuses a list with the same id twice", async () => {
@@ -94,7 +94,7 @@ describe("the snow behavioral questions change", () => {
       const before = await publishedSnow(tx);
       const lines: string[] = [];
       const first = await runChanges(tx, CHANGES, (line) => lines.push(line));
-      expect(first).toEqual({ applied: [ID], skipped: [] });
+      expect(first).toEqual({ applied: CHANGES.map((c) => c.id), skipped: [] });
       expect(lines.join("\n")).toContain(`applied ${ID}`);
 
       const after = await publishedSnow(tx);
@@ -152,7 +152,7 @@ describe("the snow behavioral questions change", () => {
 
       // The second run does nothing.
       const second = await runChanges(tx, CHANGES);
-      expect(second).toEqual({ applied: [], skipped: [ID] });
+      expect(second).toEqual({ applied: [], skipped: CHANGES.map((c) => c.id) });
       expect((await publishedSnow(tx)).version).toBe(after.version);
     });
   });
@@ -165,7 +165,7 @@ describe("the snow behavioral questions change", () => {
       await removeQuestion(tx, { formVersionId: draft.id, questionVersionId: blue.questionVersionId, actor: staffActor(adminId) });
       await publishForm(tx, { formVersionId: draft.id, changeReason: "Owner dropped the Blue question", actor: staffActor(adminId) });
 
-      expect(await runChanges(tx, CHANGES)).toEqual({ applied: [], skipped: [ID] });
+      expect(await runChanges(tx, CHANGES)).toEqual({ applied: [], skipped: CHANGES.map((c) => c.id) });
       const live = await publishedSnow(tx);
       expect(live.items.map((i) => i.key)).not.toContain("best_boss_blue");
       expect(live.items.filter((i) => i.sectionKey === "how_you_work")).toHaveLength(4);
