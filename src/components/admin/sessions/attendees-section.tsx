@@ -133,10 +133,12 @@ function SourcePicker({ value, onChange }: { value: StaffSource; onChange: (valu
   );
 }
 
-// Quick repeated entry: after each Add the fields clear and the name field takes the
-// focus again, while the source stays as picked.
+// Quick repeated entry on a phone keyboard: Enter in the name moves to the mobile,
+// Enter there adds the row, then the fields clear and the name takes the focus again,
+// while the source stays as picked.
 function AddAttendeeForm({ sessionId }: { sessionId: string }) {
   const nameRef = useRef<HTMLInputElement>(null);
+  const mobileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [source, setSource] = useState<StaffSource>("paper_sheet");
@@ -167,6 +169,12 @@ function AddAttendeeForm({ sessionId }: { sessionId: string }) {
             ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              mobileRef.current?.focus();
+            }}
+            enterKeyHint="next"
             autoComplete="off"
             autoCapitalize="words"
             maxLength={120}
@@ -175,10 +183,12 @@ function AddAttendeeForm({ sessionId }: { sessionId: string }) {
         </Field>
         <Field label="Mobile (optional)">
           <Input
+            ref={mobileRef}
             type="tel"
             inputMode="tel"
             value={mobile}
             onChange={(e) => setMobile(e.target.value)}
+            enterKeyHint="done"
             autoComplete="off"
             maxLength={40}
             className="h-11 sm:h-9"

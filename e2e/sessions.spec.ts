@@ -101,13 +101,17 @@ test.describe("group sessions", () => {
     await expect(page).toHaveURL(/\/admin\/sessions\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     await expect(page.getByText(location).first()).toBeVisible();
 
-    // Type in a name from the sheet; the mobile matches the applicant at once.
+    // Type in a name from the sheet with the keyboard alone: Enter moves to the mobile,
+    // Enter again adds the row. The mobile matches the applicant at once.
     const sheet = page.getByRole("form", { name: "Add from the sign-up sheet" });
     await sheet.getByLabel("Name as written").fill(sheetName);
-    await sheet.getByLabel("Mobile (optional)").fill(`(651) ${people.sheet.mobile.slice(5, 8)}-${people.sheet.mobile.slice(8)}`);
-    await sheet.getByRole("button", { name: "Add" }).click();
+    await sheet.getByLabel("Name as written").press("Enter");
+    await expect(sheet.getByLabel("Mobile (optional)")).toBeFocused();
+    await page.keyboard.type(`(651) ${people.sheet.mobile.slice(5, 8)}-${people.sheet.mobile.slice(8)}`);
+    await page.keyboard.press("Enter");
     await expect(page.getByText(`Added ${sheetName}, matched to their application by phone.`)).toBeVisible({ timeout: 30_000 });
     await expect(sheet.getByLabel("Name as written")).toHaveValue("");
+    await expect(sheet.getByLabel("Name as written")).toBeFocused();
     const row = page.getByRole("listitem", { name: sheetName });
     await expect(row.getByRole("link", { name: `${people.sheet.firstName} ${people.sheet.lastName}` })).toBeVisible();
     await expect(row.getByText("(matched by phone)")).toBeVisible();
@@ -141,6 +145,8 @@ test.describe("group sessions", () => {
     await expect(page.locator("body")).not.toContainText("Tidepool");
 
     await page.getByLabel("Your name").fill(`Door ${people.door.lastName}`);
+    await page.getByLabel("Your name").press("Enter");
+    await expect(page.getByLabel("Mobile number")).toBeFocused();
     await page.getByLabel("Mobile number").fill(people.door.mobile.slice(2));
     await page.getByRole("button", { name: "Check in" }).click();
     await expect(page.getByText("Thanks, Door.")).toBeVisible({ timeout: 30_000 });

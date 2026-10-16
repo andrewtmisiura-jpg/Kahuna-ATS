@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleCheck } from "lucide-react";
-import { useEffect, useId, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ const RESET_MS = 5000;
 export function CheckInForm({ sessionId }: { sessionId: string }) {
   const nameId = useId();
   const mobileId = useId();
+  const mobileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [error, setError] = useState<{ field: "name" | "mobile" | null; message: string } | null>(null);
@@ -67,6 +68,13 @@ export function CheckInForm({ sessionId }: { sessionId: string }) {
           id={nameId}
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter on the keyboard moves on to the mobile number rather than checking in.
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            mobileRef.current?.focus();
+          }}
+          enterKeyHint="next"
           autoComplete="off"
           autoCapitalize="words"
           autoCorrect="off"
@@ -83,10 +91,12 @@ export function CheckInForm({ sessionId }: { sessionId: string }) {
         </Label>
         <Input
           id={mobileId}
+          ref={mobileRef}
           type="tel"
           inputMode="tel"
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}
+          enterKeyHint="go"
           autoComplete="off"
           maxLength={40}
           aria-invalid={error?.field === "mobile" || undefined}
