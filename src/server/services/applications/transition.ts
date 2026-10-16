@@ -21,6 +21,7 @@ import { uuidv7 } from "@/lib/uuid";
 import { actorColumns, type Actor } from "../actor";
 import { writeAudit } from "../audit";
 import { addWeekdays, centralDate } from "../time";
+import { afterTransition } from "./after-transition";
 import {
   effectiveEvents,
   latestStateChange,
@@ -219,6 +220,11 @@ export async function transition(db: Db, input: TransitionInput): Promise<Transi
       .set({ ...state, lastActivityAt: now })
       .where(eq(application.id, app.id))
       .returning();
+
+    // The Phase 2 work that belongs to this event, in the same transaction.
+    const toStageId = event!.toStageId;
+    const toStage = toStageId === null ? null : toStageId === currentStage.id ? currentStage : await loadStage(tx, app, toStageId);
+    await afterTransition(tx, { input, before: app, after: updated!, event: event!, earlierEvents: events, fromStage: currentStage, toStage, now });
 
     return { event: event!, application: updated!, created };
   });
