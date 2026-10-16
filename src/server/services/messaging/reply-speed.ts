@@ -30,7 +30,7 @@ export type ReplyMessage = {
 export const NO_REPLIES: ReplySpeed = { medianMinutes: null, replies: 0 };
 
 // Outbound statuses that mean the message never reached the person.
-const FAILED_STATUSES = ["failed", "undelivered"] as const;
+const FAILED_STATUSES: Array<(typeof message.$inferSelect)["status"]> = ["failed", "undelivered"];
 
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
