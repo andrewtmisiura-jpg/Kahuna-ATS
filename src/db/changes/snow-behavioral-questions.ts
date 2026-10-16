@@ -83,6 +83,12 @@ export const snowBehavioralQuestions: Change = {
       .where(and(eq(role.key, SNOW_ROLE_KEY), isNull(role.archivedAt)));
     if (!snow) throw new Error(`The snow removal role (${SNOW_ROLE_KEY}) does not exist. Run \`pnpm db:seed\` first.`);
 
+    // The editor's ensureDraft locks this row before it looks for or starts a draft.
+    // Taking the same lock first means a draft someone starts while this runs either
+    // exists by the check below (and the change refuses) or waits until it commits,
+    // so the change never fills and publishes someone else's draft.
+    await tx.select({ id: role.id }).from(role).where(eq(role.id, snow.id)).for("update");
+
     const versions = await tx
       .select({ version: formVersion.version, status: formVersion.status })
       .from(formVersion)

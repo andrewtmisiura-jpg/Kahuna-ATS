@@ -7,7 +7,7 @@ import {
   SNOW_BEHAVIORAL_QUESTIONS,
   snowBehavioralQuestions,
 } from "@/db/changes/snow-behavioral-questions";
-import { appliedChange, application, appUser, auditLog, formVersion } from "@/db/schema";
+import { appliedChange, application, appUser, auditLog, formVersion, role } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { staffActor } from "@/server/services/actor";
@@ -15,7 +15,7 @@ import { loadApplicationForm, saveAnswer } from "@/server/services/applications/
 import { loadProfile } from "@/server/services/applications/queries";
 import { createApplication } from "@/server/services/applications/transition";
 import { matchDoNotAsk } from "@/server/services/forms/do-not-ask";
-import { ensureDraft, loadFormSnapshot, removeQuestion } from "@/server/services/forms/editor";
+import { discardDraft, ensureDraft, loadFormSnapshot, removeQuestion } from "@/server/services/forms/editor";
 import { publishForm } from "@/server/services/forms/publish";
 import { withRollback } from "./helpers/db";
 import { createPerson, loadAdminId, loadSnow, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
@@ -48,6 +48,18 @@ async function publishedSnow(tx: Tx) {
     .from(formVersion)
     .where(and(eq(formVersion.roleId, snow.roleId), eq(formVersion.status, "published")));
   return (await loadFormSnapshot(tx, row!.id))!;
+}
+
+// Resolves once another connection is waiting on a row lock.
+async function waitForLockWait() {
+  for (let i = 0; i < 200; i++) {
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'`;
+    if (row!.n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Nothing started waiting on a lock within 5 seconds");
 }
 
 async function newApplication(tx: Tx) {
@@ -178,6 +190,44 @@ describe("the snow behavioral questions change", () => {
       expect(still!.sections.map((s) => s.key)).not.toContain("how_you_work");
       expect((await publishedSnow(tx)).id).toBe(snow.formVersionId);
     });
+  });
+
+  it("waits for an editor starting a draft at the same moment, then refuses instead of publishing their draft", async () => {
+    // The editor holds the role row lock (as ensureDraft does) before the change
+    // starts, and only creates its draft once the change is waiting on that lock.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((resolve) => (signalLocked = resolve));
+    let editorDraftId: string | undefined;
+    const editor = db.transaction(async (tx) => {
+      await tx.select({ id: role.id }).from(role).where(eq(role.id, snow.roleId)).for("update");
+      signalLocked();
+      await held;
+      editorDraftId = (await ensureDraft(tx, { roleId: snow.roleId, actor: staffActor(adminId) })).id;
+    });
+    try {
+      await locked;
+      const outcome = runChanges(db, CHANGES).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await waitForLockWait();
+      release();
+      await editor;
+      const caught = await outcome;
+
+      expect(caught).toBeInstanceOf(ChangeError);
+      expect((caught as Error).message).toMatch(/unpublished draft \(version \d+\)/);
+      expect(await db.select().from(appliedChange).where(eq(appliedChange.id, ID))).toHaveLength(0);
+      const still = await loadFormSnapshot(db, editorDraftId!);
+      expect(still!.status).toBe("draft");
+      expect(still!.sections.map((s) => s.key)).not.toContain("how_you_work");
+    } finally {
+      release();
+      await editor.catch(() => {});
+      if (editorDraftId) await discardDraft(db, { formVersionId: editorDraftId, actor: staffActor(adminId) });
+    }
   });
 
   it("publishes the next version while an application pinned to the old one keeps it", async () => {
