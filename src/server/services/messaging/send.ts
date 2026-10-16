@@ -1,12 +1,13 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, employer, message, messageTemplate, person, role } from "@/db/schema";
+import { application, employer, groupSession, message, messageTemplate, person, role } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import { actorColumns, type Actor } from "../actor";
 import { centralDate, addDays, centralInstant, isInSendWindow, nextSendWindowStart, SEND_WINDOW } from "../time";
 import { linkPlaceholder, mintResumeToken, resumeLink } from "../tokens";
 import { isOptedIn, latestConsent, liveSuppression, recordConsent, suppress } from "./consent";
 import { ProviderError, type Providers } from "./providers/types";
+import { formatCentralMoment, parseInterviewReminderKey } from "./template-text";
 
 // The single send function (DATA_MODEL.md, "Send rules"). Every outbound text and
 // email is a message row: queued first, then claimed, checked against the rules at
@@ -17,6 +18,7 @@ export type MessagePurpose = NonNullable<MessageRow["purpose"]>;
 export type Channel = "sms" | "email";
 type EmployerRow = typeof employer.$inferSelect;
 type PersonRow = typeof person.$inferSelect;
+type ApplicationRow = typeof application.$inferSelect;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 // A text the applicant did not just ask for waits for the 9am to 8pm window; a
@@ -80,7 +82,6 @@ export async function queueMessage(db: Db, request: QueueRequest): Promise<Queue
   const app = request.applicationId ? await loadApplication(db, request.applicationId) : null;
   const personId = request.personId ?? app?.personId ?? null;
   const who = personId ? await loadPerson(db, personId) : null;
-  const roleTitle = app ? await loadRoleTitle(db, app.roleId) : null;
 
   const toAddress = request.toAddress ?? (who ? addressFor(who, request.channel) : null);
   if (!toAddress) throw new SendError("no_address", `The person has no ${request.channel === "sms" ? "mobile number" : "email"}`);
@@ -94,7 +95,7 @@ export async function queueMessage(db: Db, request: QueueRequest): Promise<Queue
     const template = await findTemplate(db, emp.id, app?.roleId ?? null, purpose, request.channel);
     if (!template) throw new SendError("no_template", `No ${request.channel} template for ${purpose}`);
     templateId = template.id;
-    const vars = { ...templateVars(emp, who, roleTitle), ...request.content.vars };
+    const vars = { ...(await templateVars(db, emp, who, app)), ...request.content.vars };
     subject = template.subject ? renderTemplate(template.subject, vars) : null;
     body = renderTemplate(template.body, vars);
   } else {
@@ -439,7 +440,7 @@ async function queueEmailFallback(tx: Db, row: MessageRow, now: Date, emp?: Empl
   const app = row.applicationId ? await loadApplication(tx, row.applicationId) : null;
   const template = await findTemplate(tx, employerRow.id, app?.roleId ?? null, row.purpose, "email");
   if (!template) return null;
-  const vars = templateVars(employerRow, who, app ? await loadRoleTitle(tx, app.roleId) : null);
+  const vars = { ...(await templateVars(tx, employerRow, who, app)), ...fallbackVars(row) };
   const [inserted] = await tx
     .insert(message)
     .values({
@@ -495,13 +496,37 @@ export function renderTemplate(text: string, vars: Record<string, string | null 
   return text.replace(/\{([a-z_]+)\}/g, (match, key: string) => (key === "link" ? match : (vars[key] ?? "")));
 }
 
-function templateVars(emp: EmployerRow, who: PersonRow | null, roleTitle: string | null) {
+// What a template's placeholders render to. {link} stays for the send to mint;
+// {booking_link} is the employer's one-on-one booking link and {session_date} the
+// application's group session in Central time, both empty when there is none (staff
+// sends check that first). {interview_time} comes in the request's vars from the
+// one-on-one reminder. The send dialog's preview uses this same function.
+export async function templateVars(db: Db, emp: EmployerRow, who: PersonRow | null, app: ApplicationRow | null): Promise<Record<string, string>> {
   return {
     first_name: who?.firstName ?? "there",
-    role_title: roleTitle ?? "",
+    role_title: (app ? await loadRoleTitle(db, app.roleId) : null) ?? "",
     employer_name: emp.displayName,
     help_contact: emp.helpContact ?? emp.smsFromE164 ?? "",
+    booking_link: emp.bookingLinkUrl ?? "",
+    session_date: app ? await sessionDate(db, app) : "",
   };
+}
+
+async function sessionDate(db: Db, app: ApplicationRow): Promise<string> {
+  const sessionId = app.attributedSessionId ?? app.scannedSessionId;
+  if (!sessionId) return "";
+  const [row] = await db
+    .select({ startsAt: groupSession.startsAt })
+    .from(groupSession)
+    .where(and(eq(groupSession.id, sessionId), isNull(groupSession.deletedAt)));
+  return row ? formatCentralMoment(row.startsAt) : "";
+}
+
+// A one-on-one reminder keeps its interview time in its dedupe key, so the email that
+// replaces a text that cannot go says the same time.
+function fallbackVars(row: MessageRow): Record<string, string> {
+  const reminder = row.purpose === "one_on_one_reminder" ? parseInterviewReminderKey(row.dedupeKey) : null;
+  return reminder ? { interview_time: formatCentralMoment(reminder.scheduledAt) } : {};
 }
 
 export function withFullDisclosure(body: string): string {
@@ -585,7 +610,7 @@ function triggeredColumns(actor: Actor) {
 }
 
 // Role-specific templates win over employer-wide ones.
-async function findTemplate(db: Db, employerId: string, roleId: string | null, purpose: MessagePurpose, channel: Channel) {
+export async function findTemplate(db: Db, employerId: string, roleId: string | null, purpose: MessagePurpose, channel: Channel) {
   const rows = await db
     .select()
     .from(messageTemplate)
