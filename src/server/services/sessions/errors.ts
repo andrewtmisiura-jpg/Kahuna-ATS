@@ -1,4 +1,6 @@
+import { DrizzleQueryError } from "drizzle-orm";
 import type { UserRole } from "@/server/auth/roles";
+import { pgErrorCode } from "../config/errors";
 
 // Errors raised by the group session services (attendees, matching, stars and the
 // door check-in), and who may change those rows. Each error carries a code the
@@ -46,4 +48,11 @@ export function assertCanAct(staff: SessionStaff) {
   if (!SESSION_STAFF_ROLES.includes(staff.role)) {
     throw new SessionError("not_allowed", "Only Admins and Hiring Managers can change attendees and stars");
   }
+}
+
+// What a log line may say about an unexpected error. A failed query's message
+// carries its values, here a name or a mobile, so for those only the Postgres code.
+export function loggableError(error: unknown): string {
+  if (error instanceof DrizzleQueryError) return `query failed (${pgErrorCode(error) ?? "no code"})`;
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }

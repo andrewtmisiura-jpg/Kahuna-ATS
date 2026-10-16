@@ -8,6 +8,7 @@ import { APPLICANT_ACTOR } from "./actor";
 import { createApplication } from "./applications/transition";
 import { recordConsent, liveSuppression } from "./messaging/consent";
 import { queueMessage } from "./messaging/send";
+import { loggableError } from "./sessions/errors";
 import { matchApplicationByPhone } from "./sessions/matching";
 import { normalizeEmail } from "./users";
 
@@ -243,7 +244,7 @@ async function matchCheckIns(tx: Tx, applicationId: string, now: Date) {
   try {
     await tx.transaction((savepoint) => matchApplicationByPhone(savepoint, applicationId, now));
   } catch (error) {
-    console.error("[landing] matching the new application to a group session check-in failed", error);
+    console.error(`[landing] matching the new application to a group session check-in failed: ${loggableError(error)}`);
   }
 }
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { kioskAccess } from "@/app/(kiosk)/_lib/kiosk-access";
 import { db } from "@/db";
 import { checkIn } from "@/server/services/sessions/attendees";
-import { SessionError } from "@/server/services/sessions/errors";
+import { loggableError, SessionError } from "@/server/services/sessions/errors";
 
 // The door check-in (Phase 2, sessions). The tablet is signed in by a staff member,
 // so the same access check as the kiosk pages comes first. The person at the door
@@ -31,7 +31,7 @@ export async function checkInAction(raw: z.input<typeof checkInSchema>): Promise
       if (error.code === "invalid_mobile") return { ok: false, field: "mobile", message: error.message };
       if (error.code === "checkin_closed") return { ok: false, field: null, message: error.message };
     }
-    console.error("[check-in action]", error);
+    console.error(`[check-in action] ${loggableError(error)}`);
     return { ok: false, field: null, message: ASK_STAFF };
   }
 }

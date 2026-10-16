@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { DrizzleQueryError, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, sql } from "@/db";
 import { attendee, star } from "@/db/schema";
@@ -17,6 +17,7 @@ import {
 import { checkInAction } from "@/server/actions/kiosk/check-in";
 import type { UserRole } from "@/server/auth/roles";
 import { addAttendee } from "@/server/services/sessions/attendees";
+import { loggableError } from "@/server/services/sessions/errors";
 import { loadAdminId, loadSnow, nextMobile, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 import { createApplicant, createSessionAt } from "./helpers/sessions";
 
@@ -118,5 +119,12 @@ describe("who may use the session actions", () => {
     const kiosk = await checkInAction({ sessionId, name: "Door Person", mobile: "612555" });
     expect(kiosk).toEqual({ ok: false, field: "mobile", message: "Enter a 10-digit US mobile number" });
     expect(await checkInAction({ sessionId, name: "Door Person", mobile: nextMobile() })).toEqual({ ok: true, firstName: "Door" });
+  });
+
+  it("logs a failed query without the name or mobile it carried", () => {
+    const failed = new DrizzleQueryError("insert into attendee values ($1, $2)", ["Pat Door", "+16125550123"], Object.assign(new Error("dup"), { code: "23505" }));
+    expect(failed.message).toContain("+16125550123");
+    expect(loggableError(failed)).toBe("query failed (23505)");
+    expect(loggableError(new TypeError("x is undefined"))).toBe("TypeError: x is undefined");
   });
 });
