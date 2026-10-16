@@ -33,7 +33,17 @@ describe("one cron pass", () => {
     const sink = createSinkProviders();
     const report = await runCronPass(db, { now: NOW, providers: sink, env: {} });
     expect(report.failed).toEqual([]);
-    expect(report.reap.ok && report.send.ok && report.reminders.ok && report.inbox.ok && report.digest.ok && report.backup.ok && report.heartbeat.ok).toBe(true);
+    expect(
+      report.reap.ok &&
+        report.reminders.ok &&
+        report.interviewReminders.ok &&
+        report.send.ok &&
+        report.inbox.ok &&
+        report.digest.ok &&
+        report.backup.ok &&
+        report.jobs.ok &&
+        report.heartbeat.ok,
+    ).toBe(true);
     if (report.digest.ok) expect(report.digest.value.reason === "already_sent" || report.digest.value.sent).toBe(true);
     if (report.backup.ok) expect(report.backup.value).toEqual({ kind: "skipped", reason: "r2_not_configured" });
     const beat = await readHeartbeat(db, CRON_HEARTBEAT_NAME);
@@ -41,6 +51,8 @@ describe("one cron pass", () => {
     expect(beat!.getTime()).toBeGreaterThanOrEqual(report.startedAt.getTime());
     expect(describePass(report)).toMatch(/send sent=\d+ failed=\d+/);
     expect(describePass(report)).toContain("backup r2_not_configured");
+    expect(describePass(report)).toMatch(/interview reminders queued=\d+/);
+    expect(describePass(report)).toMatch(/jobs claimed=\d+ succeeded=\d+ retried=\d+ dead=\d+ deferred=\d+/);
   });
 
   it("two passes at the same moment send a queued message once and both finish", async () => {

@@ -37,6 +37,13 @@ export const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   // Where notifyAdmin alerts go (the owner's address, not hiring@).
   ALERT_EMAIL: z.email().optional(),
+  // AI scoring (Phase 2). Without the key, scoring and the rubric editor's "Try it"
+  // say so plainly; the key itself is never logged or returned
+  // (src/server/services/scoring/provider.ts).
+  ANTHROPIC_API_KEY: z.string().optional(),
+  // "live" scores with the Anthropic model, "fake" uses the deterministic stand-in that
+  // calls nothing. Defaults to live in production and fake everywhere else.
+  SCORING_PROVIDER: z.enum(["live", "fake"]).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -28,6 +28,10 @@ export default defineConfig({
       // notifyAdmin needs an address; tests pass a sink provider so nothing is sent.
       ALERT_EMAIL: "alerts@example.test",
       MESSAGE_PROVIDERS: "sink",
+      // Scoring uses the deterministic fake, and no Anthropic key reaches a test even
+      // when .env holds one (a blank value counts as unset).
+      SCORING_PROVIDER: "fake",
+      ANTHROPIC_API_KEY: "",
     },
   },
 });
