@@ -22,6 +22,13 @@ grant select on all sequences in schema public to tidepool_readonly;
 alter default privileges in schema public grant select on tables to tidepool_readonly;
 alter default privileges in schema public grant select on sequences to tidepool_readonly;
 
+-- Except integration_secret, which holds the Quo webhook signing secret and is for the
+-- server alone (DATA_MODEL.md). The grants above include it, so take it back on every run;
+-- migration 0006 does the same when this role already exists before the table.
+select 'revoke all on table public.integration_secret from tidepool_readonly'
+where to_regclass('public.integration_secret') is not null
+\gexec
+
 -- Belt and braces: every session on this role is read-only and short.
 alter role tidepool_readonly set default_transaction_read_only = on;
 alter role tidepool_readonly set statement_timeout = '60s';

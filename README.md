@@ -16,7 +16,7 @@ Kahuna Window Cleaning's hiring system: applicant pages, staff review, texts and
 10. `pnpm test:e2e` runs Playwright on one phone viewport against the dev server it starts on port 3100; `E2E_PORT=<port> pnpm test:e2e` picks another port (`playwright.config.ts` reads it), so two checkouts can run at once.
 11. Schema changes: edit `src/db/schema`, run `pnpm db:generate`, review the SQL in `drizzle/`, commit it. Hand-written SQL (triggers, anything drizzle cannot express) goes in a custom migration: `pnpm exec drizzle-kit generate --custom --name <what>`.
 12. `pnpm user:add-admin <email>` creates or re-enables an Admin so the owner is never locked out. `pnpm cron` is the 5-minute job Railway runs as a separate service. `pnpm quo:setup` connects Quo (see Production); without `QUO_API_KEY` it prints one line and does nothing, which is the normal local case.
-13. `scripts/readonly-role.sql` creates the `tidepool_readonly` database user for the owner's own queries; run it once by hand as the app's database user (see the comment in the file).
+13. `scripts/readonly-role.sql` creates the `tidepool_readonly` database user for the owner's own queries; run it once by hand as the app's database user (see the comment in the file). It can read every table except `integration_secret` (the Quo webhook signing secret).
 
 ## Production
 

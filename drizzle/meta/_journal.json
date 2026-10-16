@@ -43,6 +43,13 @@
       "when": 1792180907906,
       "tag": "0005_integration_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792182751251,
+      "tag": "0006_integration_secret_private",
+      "breakpoints": true
     }
   ]
 }
