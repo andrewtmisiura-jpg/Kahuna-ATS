@@ -7,7 +7,8 @@ import { listSessionOpenings, listSessions } from "@/server/services/config/sess
 export const metadata = { title: "Group sessions" };
 
 // Group interview sessions: each gets its own QR code and shows on the applicants
-// who scanned it. Admins and Hiring Managers.
+// who scanned it; its page holds who came and the floor view. Admins and Hiring
+// Managers.
 export default async function SessionsPage() {
   const access = await pageAccess(["admin", "hiring_manager"]);
   if (!access.ok) {
@@ -22,11 +23,17 @@ export default async function SessionsPage() {
   const openingOptions = openings.map((o) => ({ id: o.id, name: o.name, roleName: o.roleName, status: o.status }));
   return (
     <div>
-      <PageHeader title="Group sessions" description="Each session gets its own QR code and shows on the applicants who scanned it.">
+      <PageHeader
+        title="Group sessions"
+        description="Each session gets its own QR code. Open one to type in the sign-up sheet, run the door check-in or star people from the floor."
+      >
         <NewSessionButton openings={openingOptions} />
       </PageHeader>
       <SessionsTable rows={rows} />
-      <p className="mt-4 text-xs text-muted-foreground">Applied shows submitted / started applications attributed to the session.</p>
+      <p className="mt-4 text-xs text-muted-foreground">
+        Attended counts the people on a session&apos;s list once there are any, else the headcount typed in. Applied shows submitted / started
+        applications attributed to the session.
+      </p>
     </div>
   );
 }

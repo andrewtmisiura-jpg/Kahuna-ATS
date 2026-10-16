@@ -6,6 +6,7 @@ import { formatCentralDateTime, fullName } from "@/components/admin/settings/for
 import { Notice } from "@/components/admin/settings/fields";
 import { pageAccess } from "@/components/admin/settings/page-access";
 import { QrCard } from "@/components/admin/settings/qr-card";
+import { AttendeesSection } from "@/components/admin/sessions/attendees-section";
 import { SessionEditButton } from "@/components/admin/sessions/session-edit-button";
 import { SessionStatusBadge } from "@/components/admin/sessions/sessions-table";
 import { PageHeader } from "@/components/admin/page-header";
@@ -13,26 +14,39 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/db";
+import { isUuid } from "@/lib/uuid";
 import { getEmployer } from "@/server/services/config/employer";
 import { getSession, listSessionOpenings } from "@/server/services/config/sessions";
+import { matchSessionByPhone } from "@/server/services/sessions/matching";
+import { loadSessionAttendees } from "@/server/services/sessions/queries";
 
 export const metadata = { title: "Group session" };
 
-// One session: its details, its QR, the code's scan counts and the applicants
+// One session: its details, its QR, the code's scan counts, who came (the sign-up
+// sheet and the door check-in, matched to applications) and the applicants
 // attributed to it, each with an arrival select so staff can mark who came on
 // time right after the group interview. Admins and Hiring Managers.
 export default async function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const access = await pageAccess(["admin", "hiring_manager"]);
   if (!access.ok) return access.view;
   const { id } = await params;
-  const [session, openings, employer] = await Promise.all([getSession(db, id), listSessionOpenings(db), getEmployer(db)]);
+  if (!isUuid(id)) notFound();
+  // People usually apply after the session, so rows still unmatched are matched by
+  // phone again on every visit, before anything is read.
+  await matchSessionByPhone(db, id);
+  const [session, openings, employer, list] = await Promise.all([
+    getSession(db, id),
+    listSessionOpenings(db),
+    getEmployer(db),
+    loadSessionAttendees(db, id, { suggestions: true }),
+  ]);
   if (!session) notFound();
 
   const details: [string, React.ReactNode][] = [
     ["Opening", session.openingName],
     ["Location", session.locationAddress ? `${session.locationName}, ${session.locationAddress}` : session.locationName],
     ["Invited", session.invitedCount ?? "Not entered"],
-    ["Attended", session.attendedCount ?? "Not entered yet"],
+    ["Attended", session.attendeeCount > 0 ? `${session.attendeeCount} on the list below` : (session.attendedCount ?? "Not entered yet")],
     ["Notes", session.notes ?? ""],
   ];
 
@@ -60,7 +74,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
                 attendedCount: session.attendedCount,
                 notes: session.notes,
                 status: session.status,
-                hasApplicants: session.startedCount > 0,
+                hasApplicants: session.startedCount > 0 || session.matchedCount > 0,
               }}
             />
           </div>
@@ -113,14 +127,16 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
         </p>
       ) : null}
 
+      <AttendeesSection sessionId={session.id} attendees={list.attendees} choices={list.choices} canceled={session.status === "canceled"} />
+
       <Card>
         <CardHeader>
           <CardTitle>Applicants from this session</CardTitle>
           <CardDescription>
             <span className="font-medium text-foreground">{session.startedCount}</span> started,{" "}
             <span className="font-medium text-foreground">{session.submittedCount}</span> submitted. Mark each person&apos;s arrival after the
-            session; every change is recorded. Attendee names from the sign-up sheet and stars arrive Nov 6. Someone who scanned the role QR at
-            this session can be added from their profile.
+            session; every change is recorded. A door check-in fills it in when it is still blank. Anyone matched from the list above shows
+            here; someone who scanned the role QR at this session can also be added from their profile.
           </CardDescription>
           {session.startedCount > 0 ? (
             <Link

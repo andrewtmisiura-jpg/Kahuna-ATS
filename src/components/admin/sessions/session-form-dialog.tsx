@@ -133,7 +133,7 @@ export function SessionFormDialog({
             <Field label="Invited" htmlFor="invitedCount" hint="How many Indeed says are coming.">
               <Input id="invitedCount" name="invitedCount" type="number" min={0} step={1} inputMode="numeric" defaultValue={session?.invitedCount ?? ""} />
             </Field>
-            <Field label="Attended" htmlFor="attendedCount" hint="Headcount from the sign-up sheet, after the day.">
+            <Field label="Attended" htmlFor="attendedCount" hint="A headcount, only if nobody is added to the session's list.">
               <Input id="attendedCount" name="attendedCount" type="number" min={0} step={1} inputMode="numeric" defaultValue={session?.attendedCount ?? ""} />
             </Field>
           </div>
