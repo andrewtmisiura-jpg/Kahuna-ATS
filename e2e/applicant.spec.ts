@@ -9,6 +9,9 @@ import { mintResumeToken } from "@/server/services/tokens";
 // The dev server sends through the sink provider, whose stored message bodies keep
 // the {link:<token id>} placeholder, so the test finds the application through the
 // message row addressed to the applicant and mints a link for it the way a send does.
+// The snow form is the one `pnpm db:changes` publishes (Oct 16): Basics, Availability,
+// Experience and the owner's "How you work" section, then Send. Run `pnpm db:changes`
+// against the dev database first.
 
 const run = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9);
 const mobile = `6125${run.slice(-6)}`;
@@ -89,6 +92,18 @@ test("landing to submit with a resume from the link in between", async ({ page }
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5_000 });
   await page.getByRole("button", { name: "Next", exact: true }).click();
 
+  // The owner's five questions, all required long answers.
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText("How you work");
+  await expect(page.getByText("A few sentences is plenty. Spelling and grammar don't matter.")).toBeVisible();
+  await page.getByLabel(/couldn't make it to a shift or commitment/).fill("I had the flu last March and called my lead the night before.");
+  await page.getByLabel(/a mistake you made at work that nobody else noticed/).fill("I mislabeled a delivery and told my manager the next morning.");
+  await page.getByLabel(/hardest physical job you've done/).fill("Roofing for two summers. Heat and heavy bundles. I stayed both seasons.");
+  // The instruction is plain text in the prompt.
+  await page.getByLabel(/Start your answer with the word 'Blue\.'/).fill("Blue. My best boss showed up first and stayed last.");
+  await page.getByLabel(/forgot equipment you need to finish/).fill("Tell the customer, finish what I can, keep calling and texting my manager.");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+
   await expect(page.getByRole("heading", { level: 2 })).toHaveText("Send");
   await page.getByLabel("How did you hear about us? (optional)").selectOption("indeed");
   await page.getByRole("button", { name: "Send my application" }).click();
@@ -112,10 +127,8 @@ test("required questions are checked only at submit", async ({ page }) => {
   await page.getByRole("button", { name: "Start my application" }).click();
   await page.waitForURL(/\/apply$/);
 
-  // Nothing complains while moving through unanswered screens.
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  // Nothing complains while moving through unanswered screens (four sections, then Send).
+  for (let i = 0; i < 4; i++) await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByText("This one is required")).toHaveCount(0);
   await page.getByRole("button", { name: "Send my application" }).click();
   await expect(page.getByRole("heading", { level: 2 })).toHaveText("Basics");

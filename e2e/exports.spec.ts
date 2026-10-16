@@ -28,5 +28,6 @@ test.describe("exports", () => {
     expect(columns.slice(0, 4)).toEqual(["application_id", "person_id", "first_name", "last_name"]);
     expect(columns).toContain("status");
     expect(columns).toContain("source");
+    expect(columns).toEqual(expect.arrayContaining(["group_interview_arrival", "median_text_reply_minutes", "text_reply_count"]));
   });
 });
