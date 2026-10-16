@@ -22,7 +22,7 @@ Kahuna Window Cleaning's hiring system: applicant pages, staff review, texts and
 
 One Railway project with three services:
 
-- **web**: this repo, configured by `railway.json` (Railpack build, the pre-deploy step before every deploy, `pnpm start`, the `/health` check). The pre-deploy step should be `pnpm db:migrate && pnpm db:seed && pnpm db:changes`: migrations, the insert-only seed (a no-op on existing rows) and any pending one-time content change. Check that the step Railway actually runs (the service settings or `preDeployCommand` in `railway.json`, whichever is in effect) says this.
+- **web**: this repo, configured by `railway.json` (Railpack build, the pre-deploy step before every deploy, `pnpm start`, the `/health` check). `railway.json` overrides the service settings, and its `preDeployCommand` is `pnpm db:predeploy`, which runs `pnpm db:migrate && pnpm db:seed && pnpm db:changes`: migrations, the insert-only seed (a no-op on existing rows) and any pending one-time content change. A failure in any of the three stops the deploy and the running version stays up. `ADMIN_EMAIL` must be set on web, because `pnpm db:seed` refuses to run without it.
 - **cron**: the same repo with its config file set to `railway.cron.json` in the service settings. That builds `Dockerfile.cron` (Node 22 plus `pg_dump` 18, because production Postgres is version 18) and runs `pnpm cron` every 5 minutes: sends, the reminder, inbox alerts, the 7am digest, the 3am backup to R2 and the heartbeat. See `scripts/RESTORE.md` for the backup and the restore test.
 - **Postgres**: Railway's Postgres 18, with its scheduled backups on. Both services reference its `DATABASE_URL`.
 
@@ -31,8 +31,8 @@ Every variable is pasted into Railway, never committed; `.env.example` lists the
 First deploy, in order:
 
 1. Set `CRON_HEARTBEAT_OPTIONAL=true` on web. `/health` needs a cron heartbeat under 15 minutes old, which cannot exist before the cron service has run once; remove the variable after that.
-2. Deploy web (the pre-deploy step runs `pnpm db:migrate && pnpm db:seed && pnpm db:changes`), then cron.
-3. Seed the empty database once: `ADMIN_EMAIL=<owner's Google email> pnpm db:seed`, for example through `railway run`. Re-running is a no-op.
+2. Set `ADMIN_EMAIL` on web to the owner's Google email (several separated by commas), then deploy web, then cron.
+3. The first pre-deploy (`pnpm db:predeploy`) migrates and seeds the empty database, then applies the one-time changes (snow form v2). Check the deploy log for `[db:seed] inserted` and `[db:changes] applied`; later deploys print "nothing to do" for both.
 4. Publish each approved legal text: `pnpm legal:publish <kind> <file.md>` with the kinds `sms_consent`, `privacy_policy`, `sms_terms`, `landing_notice`, `ai_disclosure` and `opt_in_page`. It runs as the Admin named by `LEGAL_PUBLISH_AS`, else `ADMIN_EMAIL`.
 5. With `QUO_API_KEY` set: `pnpm quo:connect` stores the hiring number's Quo id; `pnpm quo:webhook` creates the one Tidepool webhook and prints its signing secret for `QUO_WEBHOOK_SECRET`. Texting stays off until Settings > Texting turns it on.
 6. Webhooks: Quo posts to `https://tidepool.kahunawindowcleaning.com/api/webhooks/quo` (created by `quo:webhook`); in Resend, add a webhook for bounces and complaints to `https://tidepool.kahunawindowcleaning.com/api/webhooks/resend` and paste its secret as `RESEND_WEBHOOK_SECRET`.
@@ -48,7 +48,7 @@ Checks before merging: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` 
 - `src/server/auth` is Better Auth (Google sign-in, allowlist, database sessions) and `requireRole`, which reloads the user's status and role from `app_user` on every call (`authorize.ts`). Under the development bypass it maps `DEV_AUTH_EMAIL` to its `app_user` row and creates an Admin row on first use.
 - `src/db` is Drizzle: `schema/` one file per area of DATA_MODEL.md, `migrate.ts`, `seed/` (`index.ts` is the seed, `run.ts` the `pnpm db:seed` command), `changes/` (one-time content changes: `index.ts` lists them in order, `runner.ts` applies them, `run.ts` is `pnpm db:changes`; add a change as a new file and a new entry, never edit or remove one that shipped); migrations live in `drizzle/` (`0000` generated, `0001` the hand-written triggers and the nulls-not-distinct partial unique).
 - Database rules: every primary key is an app-generated UUIDv7 (`src/lib/uuid.ts`); `application_event`, `consent_event` and `audit_log` reject UPDATE and DELETE (SQLSTATE `TP001`); published question, form and legal text versions reject edits (SQLSTATE `TP002`); the Phase 3 purge is the one exemption, through `set local tidepool.purge = 'on'`.
-- `src/cron/index.ts` is the cron entry point. `railway.json` configures the web service (build, pre-deploy migrate, `/health` check); point the cron service at `railway.cron.json` in its Railway settings so it runs `pnpm cron` every 5 minutes without a healthcheck.
+- `src/cron/index.ts` is the cron entry point. `railway.json` configures the web service (build, the `pnpm db:predeploy` pre-deploy step, `/health` check); point the cron service at `railway.cron.json` in its Railway settings so it runs `pnpm cron` every 5 minutes without a healthcheck.
 
 Next.js ships its own current documentation in `node_modules/next/dist/docs`; read it before writing App Router code, since conventions moved in version 16 (for example `proxy.ts` replaces `middleware.ts`).
 

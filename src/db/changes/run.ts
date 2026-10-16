@@ -2,7 +2,7 @@ import { env, loadDotEnv } from "@/config/env";
 
 // `pnpm db:changes`: applies the one-time content changes listed in ./index.ts
 // that are not yet in applied_change. Runs on every deploy after migrate and seed
-// (pnpm db:migrate && pnpm db:seed && pnpm db:changes); a second run does nothing.
+// (`pnpm db:predeploy`, the preDeployCommand in railway.json); a second run does nothing.
 // Exits non-zero when a change fails, which stops the deploy.
 
 async function main() {

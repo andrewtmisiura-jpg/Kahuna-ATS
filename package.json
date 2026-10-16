@@ -18,6 +18,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed/run.ts",
     "db:changes": "tsx src/db/changes/run.ts",
+    "db:predeploy": "pnpm db:migrate && pnpm db:seed && pnpm db:changes",
     "user:add-admin": "tsx src/cli/add-admin.ts",
     "legal:publish": "tsx src/cli/legal-publish.ts",
     "quo:connect": "tsx src/cli/quo-connect.ts connect",
