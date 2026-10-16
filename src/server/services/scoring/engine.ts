@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import type { RubricForScoring, ScoredResult, Scorer, ScoringAnswer, ScoringInput } from "./types";
 
 // The app's half of scoring (PLAN.md, "The 1 to 100 score"; DATA_MODEL.md, ai_score).
 // The model grades each criterion 1 to 5; the app combines the grades with the rubric
 // version's weights into the 1 to 100 overall score, so the number is reproducible and
 // a weight-only change can re-score from stored ai_criterion_score rows without a call.
+// Nothing here reads the database or Node-only modules, so a screen may import it too.
 
 // Recorded in ai_score.prompt_version beside the prompt, so a formula change shows.
 export const OVERALL_SCORE_FORMULA_VERSION = "overall-1";
@@ -59,7 +59,7 @@ export type AnswersByQuestionKey = Readonly<Record<string, AnswerForScoring | nu
 export function buildScoringInputFromAnswers(
   rubric: RubricForScoring,
   answersByQuestionKey: AnswersByQuestionKey,
-  anonymousId: string = randomUUID(),
+  anonymousId: string = crypto.randomUUID(),
 ): ScoringInput {
   const answers: ScoringAnswer[] = [];
   for (const criterion of rubric.criteria) {
