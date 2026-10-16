@@ -18,3 +18,16 @@ export const appliedChange = pgTable("applied_change", {
   description: text().notNull(),
   appliedAt: timestamptz().notNull().defaultNow(),
 });
+
+// Secrets an integration hands Tidepool once, stored so nobody copies them by
+// hand: today only `quo_webhook_secret`, written by `pnpm quo:setup` in the same
+// run that creates the Quo webhook (DATA_MODEL.md, integration_secret). Only the
+// server reads it (src/server/services/integration-secrets.ts); it is never sent
+// to the browser, exported, written to CSV or audit payloads, or logged.
+export const integrationSecret = pgTable("integration_secret", {
+  key: text().primaryKey(),
+  value: text().notNull(),
+  createdAt: timestamptz().notNull().defaultNow(),
+  // Where the value came from, in plain words; never part of the secret.
+  note: text(),
+});

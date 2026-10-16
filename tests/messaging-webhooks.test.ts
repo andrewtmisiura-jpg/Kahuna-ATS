@@ -2,9 +2,10 @@ import { createHmac } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
-import { consentEvent, employer, message, suppression } from "@/db/schema";
+import { consentEvent, employer, integrationSecret, message, suppression } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
+import { resetQuoWebhookSecretCache } from "@/server/services/integration-secrets";
 import { createSinkProviders } from "@/server/services/messaging/providers";
 import {
   handleQuoEvent,
@@ -454,6 +455,9 @@ describe("route handlers", () => {
   it("the Quo route answers 503 without a secret, 401 on a bad signature and 200 after a valid one", async () => {
     const body = JSON.stringify(quoPayload("message.received", { id: quoMessageId(), from: nextMobile(), to: HIRING_NUMBER, body: "hello from the route" }));
     delete process.env.QUO_WEBHOOK_SECRET;
+    // No stored secret either (quo:setup's integration_secret row), and nothing cached.
+    await db.delete(integrationSecret);
+    resetQuoWebhookSecretCache();
     const noSecret = await quoPost(new Request("http://localhost/api/webhooks/quo", { method: "POST", headers: signedHeaders(body), body }));
     expect(noSecret.status).toBe(503);
 

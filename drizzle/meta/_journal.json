@@ -36,6 +36,13 @@
       "when": 1792172116333,
       "tag": "0004_staff_guidance_and_arrival",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792180907906,
+      "tag": "0005_integration_secret",
+      "breakpoints": true
     }
   ]
 }

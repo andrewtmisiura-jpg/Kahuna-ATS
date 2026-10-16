@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
+import { firstMissingQuoSecret, getQuoWebhookSecret, noteQuoSecretFound } from "@/server/services/integration-secrets";
 import { getProviders } from "@/server/services/messaging/providers";
 import { handleQuoEvent, parseQuoEvent, readSignatureHeaders, verifyStandardWebhook } from "@/server/services/messaging/webhooks";
 import { notifyAdmin } from "@/server/services/notify";
 
 // Quo's message webhook (DATA_MODEL.md, send rule 7). The signature is checked
-// against the raw body with QUO_WEBHOOK_SECRET; after a valid signature the
+// against the raw body with the signing secret: QUO_WEBHOOK_SECRET from Railway
+// first, else the integration_secret row `pnpm quo:setup` stored when it created
+// the webhook (cached in memory for 5 minutes). With neither, it answers 503
+// without reading the event and logs that once. After a valid signature the
 // handler answers 200 whatever the event (unknown types and ids are logged, never
 // errors) so Quo never disables the webhook. Only a thrown error answers 500, so
 // Quo redelivers it, which is harmless because inbound inserts dedupe on the
@@ -15,8 +19,24 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const body = await request.text();
+  let secret: string | null;
+  try {
+    secret = (await getQuoWebhookSecret(db))?.secret ?? null;
+  } catch (error) {
+    console.error("[webhook:quo] could not read the signing secret", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ error: "secret_unavailable" }, { status: 500 });
+  }
+  if (!secret) {
+    if (firstMissingQuoSecret()) {
+      console.warn("[webhook:quo] no signing secret (QUO_WEBHOOK_SECRET or the stored one from pnpm quo:setup); answering 503 until one exists");
+      await notifyAdmin(db, "webhook_no_secret_quo", "Quo webhook has no signing secret", "Quo deliveries are refused with 503. The next deploy's quo:setup step says why; see Settings > Texting.");
+    }
+    return NextResponse.json({ error: "no_secret" }, { status: 503 });
+  }
+  noteQuoSecretFound();
+
   const verified = verifyStandardWebhook({
-    secret: process.env.QUO_WEBHOOK_SECRET,
+    secret,
     headers: readSignatureHeaders(request.headers, "webhook"),
     body,
   });
