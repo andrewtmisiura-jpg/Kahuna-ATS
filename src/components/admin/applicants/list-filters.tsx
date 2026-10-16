@@ -12,6 +12,7 @@ import { ARRIVAL_OPTIONS, SOURCE_LABELS } from "./format";
 
 // The filters are the URL: a plain GET form the browser serialises, so a filtered
 // list can be bookmarked and the profile's next and previous buttons can carry it.
+// While the role shows AI scores, a sort picks "AI score, high to low" over newest first.
 
 const STATUS_LABELS: Record<(typeof LIST_STATUSES)[number] | "", string> = {
   "": "Submitted (any status)",
@@ -43,6 +44,15 @@ export function ListFiltersForm({ filters, options }: { filters: ListFilters; op
           Search
         </Button>
       </div>
+      {options.aiScoreSort ? (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Sort
+          <NativeSelect name="sort" defaultValue={filters.sort ?? ""} onChange={submit} className="h-11 w-auto sm:h-9">
+            <option value="">Newest first</option>
+            <option value="ai_score">AI score, high to low</option>
+          </NativeSelect>
+        </label>
+      ) : null}
       <details open={active} className="rounded-md border">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Filters{active ? " (on)" : ""}</summary>
         <div className="grid gap-3 border-t p-3 sm:grid-cols-2 lg:grid-cols-4">
