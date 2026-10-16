@@ -10,9 +10,10 @@ import type { BoardFilters } from "@/server/services/applications/board";
 import type { ListFilterOptions } from "@/server/services/applications/queries";
 
 // The board's filters: on hold only, group session, entry code and a name
-// search. A plain GET form, so a filtered board is a link like the list.
+// search, and while the role shows AI scores, a sort by score within each column.
+// A plain GET form, so a filtered board is a link like the list.
 
-type Props = { filters: BoardFilters; options: Pick<ListFilterOptions, "entryCodes" | "sessions">; active: boolean };
+type Props = { filters: BoardFilters; options: Pick<ListFilterOptions, "entryCodes" | "sessions" | "aiScoreSort">; active: boolean };
 
 export function BoardFiltersForm({ filters, options, active }: Props) {
   const form = useRef<HTMLFormElement>(null);
@@ -50,6 +51,15 @@ export function BoardFiltersForm({ filters, options, active }: Props) {
           <option value="none">No code</option>
         </NativeSelect>
       </label>
+      {options.aiScoreSort ? (
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Sort
+          <NativeSelect name="sort" defaultValue={filters.sort ?? ""} onChange={submit} className="w-48">
+            <option value="">Longest in stage first</option>
+            <option value="ai_score">AI score, high to low</option>
+          </NativeSelect>
+        </label>
+      ) : null}
       <label className="flex h-9 items-center gap-2 text-sm">
         <input type="checkbox" name="hold" value="1" defaultChecked={filters.onHold} onChange={submit} /> On hold only
       </label>
