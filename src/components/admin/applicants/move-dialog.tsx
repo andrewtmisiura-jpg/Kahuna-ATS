@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { bulkMoveApplications, moveApplication, type BulkMoveOutcome, type TransitionOutcome } from "@/server/actions/admin/applications";
 import { moveWithInviteAction } from "@/server/actions/admin/messages";
 import type { PicklistItem, StageOption } from "@/server/services/applications/queries";
+import { moveSendsInvite } from "@/server/services/messaging/template-text";
 import { ActionNotice, CheckboxRow, Field, NativeSelect, OccurredAtField, Textarea, YesNo } from "./fields";
 import { CHECK_TYPE_LABELS } from "./format";
 import { MessagePreviewCard, useMessagePreview } from "./panels/message-preview";
@@ -79,8 +80,7 @@ function MoveForm({ stages, crews, initialStageId, target, onOpenChange, onDone 
   const stage = stages.find((s) => s.id === stageId);
   const currentIndex = stages.findIndex((s) => s.id === current);
   const milestone = stage?.milestone ?? null;
-  const currentMilestone = stages[currentIndex]?.milestone ?? null;
-  const offersInvite = !bulk && milestone === "interview_invited" && currentMilestone !== "interview_invited";
+  const offersInvite = !bulk && moveSendsInvite(stages[currentIndex], stage);
   const invite = useMessagePreview(offersInvite && !bulk ? target.applicationId : null, "one_on_one_invite");
   const inviteReady = Boolean(invite?.preview && !invite.preview.problem);
   const sendInvite = offersInvite && inviteReady && (inviteChoice ?? true);

@@ -49,6 +49,17 @@ export function isStaffSendPurpose(purpose: string): purpose is StaffSendPurpose
   return (STAFF_SEND_PURPOSES as readonly string[]).includes(purpose);
 }
 
+type StagePlace = { milestone: string | null; sortOrder: number };
+
+// The Move dialog's one-on-one invite goes with a move into an interview_invited stage from
+// an earlier one. Live stages follow the order of the milestones (the stage editor keeps
+// them so), so earlier means earlier in the pipeline, which places custom stages too; a
+// move back from One-on-one done, an offer or Hired brings no invite.
+export function moveSendsInvite(from: StagePlace | undefined, to: StagePlace | undefined): boolean {
+  if (to?.milestone !== "interview_invited" || from?.milestone === "interview_invited") return false;
+  return !from || from.sortOrder < to.sortOrder;
+}
+
 // The placeholder a purpose is pointless without, in the message itself.
 export const REQUIRED_VARIABLES: Record<EditablePurpose, readonly TemplateVariable[]> = {
   one_on_one_invite: ["booking_link"],

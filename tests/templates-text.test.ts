@@ -7,6 +7,7 @@ import {
   formatCentralMoment,
   FULL_CLOSING,
   interviewReminderKey,
+  moveSendsInvite,
   parseInterviewReminderKey,
   placeholdersIn,
   sampleValues,
@@ -184,5 +185,23 @@ describe("interview times", () => {
     expect(parseInterviewReminderKey(`${key}:email`)).toEqual({ interviewId: id, scheduledAt: at });
     expect(parseInterviewReminderKey("reminder_24h:abc")).toBeNull();
     expect(parseInterviewReminderKey(null)).toBeNull();
+  });
+});
+
+describe("the invite a move sends", () => {
+  it("goes only with a move into an interview_invited stage from an earlier one", () => {
+    const stage = (milestone: string | null, sortOrder: number) => ({ milestone, sortOrder });
+    const invited = stage("interview_invited", 40);
+    expect(moveSendsInvite(stage("submitted", 20), invited)).toBe(true);
+    expect(moveSendsInvite(stage("reviewed", 30), invited)).toBe(true);
+    // A custom stage counts by its place in the pipeline.
+    expect(moveSendsInvite(stage(null, 35), invited)).toBe(true);
+    expect(moveSendsInvite(stage(null, 65), invited)).toBe(false);
+    // Moves back, and moves within the invited stages, bring no invite.
+    for (const from of [stage("interviewed", 60), stage("offered", 70), stage("hired", 90), stage("interview_invited", 50)]) {
+      expect(moveSendsInvite(from, invited)).toBe(false);
+    }
+    expect(moveSendsInvite(stage("submitted", 20), stage("reviewed", 30))).toBe(false);
+    expect(moveSendsInvite(undefined, invited)).toBe(true);
   });
 });

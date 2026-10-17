@@ -358,8 +358,17 @@ describe("the invite a move sends", () => {
 
       await readyEmployer(tx, employerId);
       const reviewed: TransitionInput = { action: "move", applicationId: a.applicationId, toStageId: stages.reviewed!, actor: staff };
-      await expect(transition(tx, withMessages(reviewed, { sendInvite: true }))).rejects.toThrow("The invite goes with a move into a one-on-one invited stage.");
+      const refused = "The invite goes with a move into a one-on-one invited stage from an earlier one.";
+      await expect(transition(tx, withMessages(reviewed, { sendInvite: true }))).rejects.toThrow(refused);
       expect(await eventSeq(tx, a.applicationId)).toBe(before);
+      expect(await messagesFor(tx, a.applicationId)).toHaveLength(0);
+
+      // A move back into One-on-one invited, say to fix a move too far, brings no new invite.
+      await transition(tx, { action: "move", applicationId: a.applicationId, toStageId: stages.one_on_one_done!, actor: staff });
+      const done = await eventSeq(tx, a.applicationId);
+      const back: TransitionInput = { action: "move", applicationId: a.applicationId, toStageId: stages.one_on_one_invited!, actor: staff };
+      await expect(transition(tx, withMessages(back, { sendInvite: true }))).rejects.toThrow(refused);
+      expect(await eventSeq(tx, a.applicationId)).toBe(done);
       expect(await messagesFor(tx, a.applicationId)).toHaveLength(0);
     });
   });
