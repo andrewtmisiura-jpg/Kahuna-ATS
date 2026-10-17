@@ -51,7 +51,7 @@ test.describe("AI scoring rubric", () => {
 
     const card = page.getByRole("region", { name: snowName });
     const visible = card.getByRole("radio", { name: /^Visible/ });
-    // The scoring spec turns snow scoring off when it finishes; the screen turns it back on.
+    // Snow may have been left with scoring off by hand or by an earlier run; the screen turns it back on.
     if (!(await visible.isChecked())) await visible.check();
     await expect(card.getByText("Scoring visible")).toBeVisible();
     await expect(visible).toBeChecked();

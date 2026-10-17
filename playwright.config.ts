@@ -21,6 +21,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
+  // The dev server compiles a page on its first visit, and the profile carries every
+  // Phase 2 panel, so a cold first open can take longer than the default 5 seconds.
+  expect: { timeout: 10_000 },
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL,
