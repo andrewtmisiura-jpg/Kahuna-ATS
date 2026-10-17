@@ -4,15 +4,19 @@ import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { closeApplication } from "@/server/actions/admin/applications";
+import { closeWithDeclineAction } from "@/server/actions/admin/messages";
 import type { PicklistItem, ProfileCheck } from "@/server/services/applications/queries";
 import { addWeekdays } from "@/server/services/time";
 import { ActionNotice, CheckboxRow, Field, NativeSelect, OccurredAtField, Textarea } from "./fields";
 import { CHECK_STATUS_LABELS, CHECK_TYPE_LABELS, formatCalendarDate } from "./format";
+import { MessagePreviewCard, useMessagePreview } from "./panels/message-preview";
 import { useAdminAction } from "./use-admin-action";
 
 // The Close dialog: outcome, a reason from the matching list, a note, and the
 // FCRA controls whenever a background check is open (PLAN.md, Decisions 12).
 // The outcome, reason and FCRA pieces are shared with the Rescind hire dialog.
+// Closing as Disqualified or Not selected offers the decline message, unticked;
+// ticked, the close and the decline are saved together.
 
 export type Outcome = "disqualified" | "withdrew" | "not_selected";
 
@@ -166,10 +170,31 @@ function CloseForm({ onOpenChange, application, picklists, checks }: Props) {
   const choice = useCloseChoice(picklists, checks);
   const [note, setNote] = useState("");
   const [occurredAt, setOccurredAt] = useState<string | undefined>(undefined);
+  const [declineChecked, setDeclineChecked] = useState(false);
   const { run, pending, failure } = useAdminAction();
+  const offersDecline = choice.outcome === "disqualified" || choice.outcome === "not_selected";
+  const decline = useMessagePreview(offersDecline ? application.id : null, "decline");
+  const declineReady = Boolean(decline?.preview && !decline.preview.problem);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if ((choice.outcome === "disqualified" || choice.outcome === "not_selected") && declineChecked && declineReady) {
+      const outcome = choice.outcome;
+      run(
+        () =>
+          closeWithDeclineAction({
+            applicationId: application.id,
+            expectedSeq: application.eventSeq,
+            outcome,
+            reasonOptionId: choice.reasonId,
+            note: note || null,
+            occurredAt,
+            fcra: choice.fcra,
+          }),
+        () => onOpenChange(false),
+      );
+      return;
+    }
     run(
       () =>
         closeApplication({
@@ -199,6 +224,20 @@ function CloseForm({ onOpenChange, application, picklists, checks }: Props) {
       <Field label={choice.reason?.requiresNote ? "Note (required for this reason)" : "Note (optional)"}>
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} required={choice.reason?.requiresNote} />
       </Field>
+
+      {offersDecline ? (
+        <div className="grid gap-3 rounded-md border p-3">
+          <CheckboxRow
+            label="Send the decline message"
+            checked={declineChecked && declineReady}
+            disabled={!declineReady}
+            onChange={setDeclineChecked}
+            hint="A short, kind note with no reasons. The note above is never sent."
+          />
+          {decline?.error ? <p className="text-sm text-destructive">{decline.error}</p> : null}
+          {decline?.preview && ((declineChecked && declineReady) || decline.preview.problem) ? <MessagePreviewCard preview={decline.preview} /> : null}
+        </div>
+      ) : null}
 
       <ActionNotice failure={failure} />
       <DialogFooter>
