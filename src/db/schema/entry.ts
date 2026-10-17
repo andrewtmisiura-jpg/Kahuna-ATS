@@ -20,7 +20,7 @@ export const groupSession = pgTable(
     locationAddress: text(),
     // Entered from Indeed.
     invitedCount: integer(),
-    // Headcount from the sheet until Phase 2 attendee rows exist.
+    // Headcount from the sheet; once the session has attendee rows, screens count those instead.
     attendedCount: integer(),
     status: groupSessionStatusEnum().notNull(),
     notes: text(),

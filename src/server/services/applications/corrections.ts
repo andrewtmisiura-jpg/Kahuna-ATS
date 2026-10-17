@@ -138,7 +138,8 @@ function closedAs(event: PreviewEvent): string {
 }
 
 // What the confirmation names: the change "Undo last change" would void, or null.
-export function undoPreview(events: readonly PreviewEvent[]): UndoPreview | null {
+// messageQueued: the invite or decline that change queued has not gone out yet.
+export function undoPreview(events: readonly PreviewEvent[], messageQueued = false): UndoPreview | null {
   const event = latestStateChange(events);
   if (!event) return null;
   const m = event.metadata ?? {};
@@ -152,10 +153,12 @@ export function undoPreview(events: readonly PreviewEvent[]): UndoPreview | null
       if (m.background_check_id) effects.push("The background check this move created is canceled.");
       if (m.hire_stint_id) effects.push("The hire record this move created is marked entered in error.");
       if (m.voided_hire_stint_id) effects.push("The application is hired again and its hire record comes back.");
+      if (messageQueued) effects.push("The one-on-one invite this move queued is canceled before it goes out.");
       break;
     case "closed":
       summary = `Closed as ${closedAs(event)}`;
       effects.push("The application is open again, in the same stage.");
+      if (messageQueued) effects.push("The decline message this close queued is canceled before it goes out.");
       break;
     case "reopened":
       summary = `Reopened into ${event.toStage ?? "the same stage"}`;

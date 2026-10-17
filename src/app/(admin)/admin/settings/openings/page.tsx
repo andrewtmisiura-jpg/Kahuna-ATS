@@ -29,7 +29,7 @@ export default async function OpeningsSettingsPage() {
       {header}
       <OpeningsTable openings={openings} />
       <p className="mt-6 text-xs text-muted-foreground">
-        New roles and their openings arrive with the Phase 2 Settings screens; the two launch openings come from the seed.
+        A new opening is added on its role&apos;s page in Settings, Roles and stages, as a draft; set its pay and dates here, then open it.
       </p>
     </div>
   );

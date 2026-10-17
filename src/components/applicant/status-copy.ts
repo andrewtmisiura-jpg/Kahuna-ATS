@@ -13,6 +13,9 @@ export const STATUS_SENTENCES: Record<string, string> = {
   Hired: "Welcome aboard. Your start details will come from your manager.",
 };
 
+// The button under Interview while a one-on-one invite is out; it opens the booking link.
+export const BOOK_INTERVIEW = "Book your interview";
+
 export const CLOSED_LINE = "This application is closed. Thank you for applying.";
 export const REVIEWS_LINE = "A person on our team reviews every application.";
 export const QUESTIONS_LINE = `Questions? Call or text ${HIRING_NUMBER}.`;

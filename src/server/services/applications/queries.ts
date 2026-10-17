@@ -22,6 +22,7 @@ import {
   pipelineStage,
   questionVersion,
   role,
+  rubric,
   GROUP_INTERVIEW_ARRIVALS,
   sourceEnum,
   suppression,
@@ -31,10 +32,12 @@ import {
 } from "@/db/schema";
 import type { UserRole } from "@/server/auth/roles";
 import { checkStartsWith, type StartsWithResult } from "../forms/starts-with";
+import { messageKeysFor } from "../messaging/after-transition";
 import { countUnhandledInbound, unhandledInboundCountSql } from "../messaging/inbox";
 import { describeReplySpeed, replySpeedForPerson, type ReplySpeed } from "../messaging/reply-speed";
 import { addDays, centralInstant } from "../time";
 import { stageBeforeHire, undoPreview, type UndoPreview } from "./corrections";
+import { latestStateChange } from "./replay";
 import { isOpenCheck } from "./transition";
 
 // Read side of the staff review screens (PLAN.md, "What staff experience"):
@@ -46,6 +49,9 @@ export const LIST_STATUSES = ["open", "hired", "closed", "started", "all"] as co
 export type ListStatus = (typeof LIST_STATUSES)[number];
 export const SOURCES = sourceEnum.enumValues;
 export type Source = (typeof SOURCES)[number];
+// "AI score, high to low", offered while the opening's role shows scores. Newest first stays the default.
+export const LIST_SORTS = ["ai_score"] as const;
+export type ListSort = (typeof LIST_SORTS)[number];
 
 export const PAGE_SIZE = 50;
 
@@ -66,6 +72,7 @@ export type ListFilters = {
   attention?: boolean;
   conflicts?: boolean;
   search?: string;
+  sort?: ListSort;
   page?: number;
 };
 
@@ -86,6 +93,7 @@ export function parseListFilters(params: SearchParams, openingId: string): ListF
   const arrival = first(params, "arrival");
   const from = first(params, "from");
   const to = first(params, "to");
+  const sort = first(params, "sort");
   const page = Number(first(params, "page") ?? "1");
   return {
     openingId,
@@ -104,6 +112,7 @@ export function parseListFilters(params: SearchParams, openingId: string): ListF
     attention: first(params, "attention") === "1",
     conflicts: first(params, "conflicts") === "1",
     search: first(params, "q"),
+    sort: sort && (LIST_SORTS as readonly string[]).includes(sort) ? (sort as ListSort) : undefined,
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 }
@@ -124,6 +133,7 @@ export function listFilterParams(filters: ListFilters, extra: Record<string, str
   if (filters.attention) params.set("attention", "1");
   if (filters.conflicts) params.set("conflicts", "1");
   if (filters.search) params.set("q", filters.search);
+  if (filters.sort) params.set("sort", filters.sort);
   if (filters.page && filters.page > 1) params.set("page", String(filters.page));
   for (const [key, value] of Object.entries(extra)) if (value) params.set(key, value);
   return params;
@@ -185,10 +195,12 @@ export type ListFilterOptions = {
   stages: StageOption[];
   entryCodes: { id: string; code: string; label: string }[];
   sessions: { id: string; label: string }[];
+  // True while the role's rubric is in visible mode, so the list and board offer "AI score, high to low".
+  aiScoreSort: boolean;
 };
 
 export async function listFilterOptions(db: Db, open: OpeningOption): Promise<ListFilterOptions> {
-  const [stages, codes, sessions] = await Promise.all([
+  const [stages, codes, sessions, [scoring]] = await Promise.all([
     listStages(db, open.roleId),
     db
       .select({ id: entryCode.id, code: entryCode.code, label: entryCode.label })
@@ -200,11 +212,13 @@ export async function listFilterOptions(db: Db, open: OpeningOption): Promise<Li
       .from(groupSession)
       .where(and(eq(groupSession.openingId, open.id), isNull(groupSession.deletedAt)))
       .orderBy(desc(groupSession.startsAt)),
+    db.select({ mode: rubric.scoringMode }).from(rubric).where(eq(rubric.roleId, open.roleId)),
   ]);
   return {
     stages,
     entryCodes: codes,
     sessions: sessions.map((s) => ({ id: s.id, label: sessionLabel(s) })),
+    aiScoreSort: scoring?.mode === "visible",
   };
 }
 
@@ -313,9 +327,17 @@ export type ListRow = {
   attention: AttentionFlag[];
   unhandledTexts: number;
   textsBlocked: boolean;
+  // The 1 to 100 AI score staff may see; null when there is none to show.
+  aiScore: number | null;
 };
 
 export type ListPage = { rows: ListRow[]; total: number; page: number; pageSize: number; pageCount: number };
+
+// The current AI score staff may see (the profile's scoring panel follows the same rule):
+// it succeeded, it was not made in hidden mode, and the role's rubric is still in visible
+// mode. Anything else is null, so hidden mode shows no number on the list or the board.
+export const visibleAiScore = sql<number | null>`(select s.overall_score from ai_score s join rubric r on r.role_id = ${application.roleId}
+  where s.application_id = ${application.id} and s.is_current and s.status = 'succeeded' and not s.hidden_from_reviewers and r.scoring_mode = 'visible')`;
 
 function dateRange(filters: ListFilters): SQL | undefined {
   const parts: SQL[] = [];
@@ -395,8 +417,13 @@ function listWhere(filters: ListFilters, role: UserRole): SQL {
   return and(...parts)!;
 }
 
-// Newest first: by submitted time, then by start time for the unsubmitted.
-const LIST_ORDER = [sql`${application.submittedAt} desc nulls last`, desc(application.startedAt), desc(application.id)];
+// Newest first: by submitted time, then by start time for the unsubmitted. Sorted by AI
+// score, the highest come first and rows without a score to show come last, each in the
+// same newest-first order among themselves.
+function listOrder(filters: ListFilters): SQL[] {
+  const newest = [sql`${application.submittedAt} desc nulls last`, desc(application.startedAt), desc(application.id)];
+  return filters.sort === "ai_score" ? [sql`${visibleAiScore} desc nulls last`, ...newest] : newest;
+}
 
 export async function listApplications(db: Db, filters: ListFilters, role: UserRole): Promise<ListPage> {
   const where = listWhere(filters, role);
@@ -433,6 +460,7 @@ export async function listApplications(db: Db, filters: ListFilters, role: UserR
         // The texts the profile shows, counted with the inbox's rule.
         unhandledTexts: unhandledInboundCountSql(application.id, application.personId),
         textsBlocked: sql<boolean>`exists (select 1 from suppression s where s.channel = 'sms' and s.lifted_at is null and s.address = ${person.mobileE164})`,
+        aiScore: visibleAiScore,
       })
       .from(application)
       .innerJoin(person, eq(person.id, application.personId))
@@ -441,7 +469,7 @@ export async function listApplications(db: Db, filters: ListFilters, role: UserR
       .leftJoin(entryCode, eq(entryCode.id, application.entryCodeId))
       .leftJoin(groupSession, eq(groupSession.id, application.attributedSessionId))
       .where(where)
-      .orderBy(...LIST_ORDER)
+      .orderBy(...listOrder(filters))
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
   ]);
@@ -478,6 +506,7 @@ export async function listApplications(db: Db, filters: ListFilters, role: UserR
       attention: attention.get(row.id) ?? [],
       unhandledTexts: row.unhandledTexts,
       textsBlocked: role === "viewer" ? false : row.textsBlocked,
+      aiScore: row.aiScore,
     })),
     total,
     page,
@@ -493,7 +522,7 @@ export async function listApplicationIds(db: Db, filters: ListFilters, role: Use
     .from(application)
     .innerJoin(person, eq(person.id, application.personId))
     .where(listWhere(filters, role))
-    .orderBy(...LIST_ORDER);
+    .orderBy(...listOrder(filters));
   return rows.map((row) => row.id);
 }
 
@@ -973,6 +1002,15 @@ async function loadEvents(
     .where(eq(applicationEvent.applicationId, applicationId))
     .orderBy(asc(applicationEvent.seq));
   const voided = new Set(rows.filter((r) => r.event.kind === "event_voided" && r.event.voidsEventId).map((r) => r.event.voidsEventId!));
+  // Undoing the latest change cancels the invite or decline it queued, if that is still waiting.
+  const latest = latestStateChange(rows.map((row) => row.event));
+  const queued = latest
+    ? await db
+        .select({ id: message.id })
+        .from(message)
+        .where(and(eq(message.applicationId, applicationId), inArray(message.dedupeKey, messageKeysFor(latest.id)), eq(message.status, "queued")))
+        .limit(1)
+    : [];
   const undo = undoPreview(
     rows.map((row) => ({
       ...row.event,
@@ -981,6 +1019,7 @@ async function loadEvents(
       reasonLabel: row.reasonLabel,
       actorName: row.actorName ?? row.actorEmail ?? null,
     })),
+    queued.length > 0,
   );
   const events = rows.map((row) => ({
     id: row.event.id,

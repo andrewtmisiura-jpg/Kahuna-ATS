@@ -5,9 +5,7 @@ import { APPLICANT_COPY } from "@/components/applicant/status-copy";
 import { db } from "@/db";
 import { turnstileSiteKey } from "@/server/actions/applicant/turnstile";
 import { recordScan, resolveEntryCode } from "@/server/services/entry-codes";
-import { currentLegalText, legalTextById, renderMarkdown, splitConsentText } from "@/server/services/legal";
-import { and, eq } from "drizzle-orm";
-import { formVersion } from "@/db/schema";
+import { currentLegalText, renderMarkdown, splitConsentText } from "@/server/services/legal";
 
 // Entry code resolver and role landing page: every QR and shared link lands here.
 // The code is looked up and its scan counted; a closed code falls back to the
@@ -48,10 +46,12 @@ export default async function EntryCodePage({ params }: { params: Promise<{ code
     );
   }
 
+  // The newest AI notice, so a new version reaches applicants without a form publish. The
+  // form posts back which one it showed (scoring/disclosure.ts proves what each applicant read).
   const [notice, consent, aiDisclosure, nonce] = await Promise.all([
     currentLegalText(db, "landing_notice"),
     currentLegalText(db, "sms_consent"),
-    loadAiDisclosure(role.id),
+    currentLegalText(db, "ai_disclosure"),
     headers().then((h) => h.get("x-nonce")),
   ]);
 
@@ -86,7 +86,7 @@ export default async function EntryCodePage({ params }: { params: Promise<{ code
         ) : null}
         <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
           {notice ? <p>{notice.body}</p> : null}
-          {aiDisclosure ? <p>{aiDisclosure}</p> : null}
+          {aiDisclosure ? <p>{aiDisclosure.body}</p> : null}
         </div>
       </section>
 
@@ -100,21 +100,11 @@ export default async function EntryCodePage({ params }: { params: Promise<{ code
           consentVersionId={consent.id}
           consentLabel={consentText.label}
           consentDisclosureHtml={disclosureHtml}
+          aiDisclosureVersionId={aiDisclosure?.id ?? null}
           turnstileSiteKey={turnstileSiteKey()}
           nonce={nonce}
         />
       </section>
     </div>
   );
-}
-
-// The AI notice the role's published form points at, else the current one.
-async function loadAiDisclosure(roleId: string): Promise<string | null> {
-  const [form] = await db
-    .select({ aiDisclosureVersionId: formVersion.aiDisclosureVersionId })
-    .from(formVersion)
-    .where(and(eq(formVersion.roleId, roleId), eq(formVersion.status, "published")));
-  const pinned = form?.aiDisclosureVersionId ? await legalTextById(db, form.aiDisclosureVersionId) : null;
-  const row = pinned ?? (await currentLegalText(db, "ai_disclosure"));
-  return row?.body ?? null;
 }

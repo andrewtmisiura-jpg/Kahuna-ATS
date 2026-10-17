@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils";
 import type { BoardCard } from "@/server/services/applications/board";
 
 // One applicant on the board: name (opens the profile), entry code or session,
-// submitted date, days in stage, and the badges staff scan for. The whole card
-// drags with a pointer; the grip is the keyboard handle.
+// submitted date, days in stage, and the badges staff scan for, the AI score among
+// them while the role shows scores. The whole card drags with a pointer; the grip is
+// the keyboard handle.
 
 // idle: where the server has it. saving: a move is on its way. waiting: a dialog is open for it.
 export type CardState = "idle" | "saving" | "waiting";
@@ -76,6 +77,13 @@ export function CardBody({ card, openingId, state = "idle", handle, overlay = fa
 
 function CardBadges({ card }: { card: BoardCard }) {
   const badges: React.ReactNode[] = [];
+  if (card.aiScore !== null) {
+    badges.push(
+      <Badge key="score" variant="secondary" className="tabular-nums" title="AI score out of 100, a sorting aid only">
+        AI score {card.aiScore}
+      </Badge>,
+    );
+  }
   if (card.onHold) badges.push(<Badge key="hold" variant="outline">On hold</Badge>);
   if (card.unhandledTexts > 0) badges.push(<Badge key="texts" variant="secondary">Texts ({card.unhandledTexts})</Badge>);
   if (card.returning !== "none") {

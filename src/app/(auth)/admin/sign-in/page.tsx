@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Sign in | Tidepool" };
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
   const { error, next } = await searchParams;
   const bypass = devBypassUser();
-  const callbackURL = next?.startsWith("/admin") || next === "/help" ? next : "/admin";
+  const callbackURL = next?.startsWith("/admin") || next === "/help" || next?.startsWith("/check-in/") ? next : "/admin";
 
   return (
     <div className="flex min-h-dvh items-center justify-center px-4">

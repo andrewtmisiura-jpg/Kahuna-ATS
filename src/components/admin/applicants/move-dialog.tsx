@@ -5,9 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { bulkMoveApplications, moveApplication, type BulkMoveOutcome, type TransitionOutcome } from "@/server/actions/admin/applications";
+import { moveWithInviteAction } from "@/server/actions/admin/messages";
 import type { PicklistItem, StageOption } from "@/server/services/applications/queries";
-import { ActionNotice, Field, NativeSelect, OccurredAtField, Textarea, YesNo } from "./fields";
+import { moveSendsInvite } from "@/server/services/messaging/template-text";
+import { ActionNotice, CheckboxRow, Field, NativeSelect, OccurredAtField, Textarea, YesNo } from "./fields";
 import { CHECK_TYPE_LABELS } from "./format";
+import { MessagePreviewCard, useMessagePreview } from "./panels/message-preview";
 import { useAdminAction } from "./use-admin-action";
 
 // The Move dialog (PLAN.md: stage, time, optional note; backdate if catching up).
@@ -15,6 +18,9 @@ import { useAdminAction } from "./use-admin-action";
 // also asks for the offer details, a background_check stage for the check, and
 // Hired for the first hire form fields; the rest of the hire form is on the
 // profile. In bulk mode those three are refused, so each record stays complete.
+// A move of one application into an interview_invited stage from an earlier one
+// offers the one-on-one invite with its preview, ticked when it can go; the move
+// and the invite are then saved together.
 
 export type MoveTarget = { applicationId: string; eventSeq: number; currentStageId: string };
 
@@ -67,15 +73,31 @@ function MoveForm({ stages, crews, initialStageId, target, onOpenChange, onDone 
   const [isTemporary, setIsTemporary] = useState(false);
   const [plannedEndOn, setPlannedEndOn] = useState("");
   const [skipped, setSkipped] = useState<BulkMoveOutcome["skipped"]>([]);
+  // Invite: null until someone touches the box, so it follows the preview's default.
+  const [inviteChoice, setInviteChoice] = useState<boolean | null>(null);
   const { run, pending, failure } = useAdminAction();
 
   const stage = stages.find((s) => s.id === stageId);
   const currentIndex = stages.findIndex((s) => s.id === current);
   const milestone = stage?.milestone ?? null;
+  const offersInvite = !bulk && moveSendsInvite(stages[currentIndex], stage);
+  const invite = useMessagePreview(offersInvite && !bulk ? target.applicationId : null, "one_on_one_invite");
+  const inviteReady = Boolean(invite?.preview && !invite.preview.problem);
+  const sendInvite = offersInvite && inviteReady && (inviteChoice ?? true);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!stageId) return;
+    if (!bulk && sendInvite) {
+      run(
+        () => moveWithInviteAction({ applicationId: target.applicationId, expectedSeq: target.eventSeq, toStageId: stageId, occurredAt, note: note || null }),
+        (result) => {
+          onOpenChange(false);
+          onDone?.(result);
+        },
+      );
+      return;
+    }
     if (bulk) {
       run(
         () => bulkMoveApplications({ items: target.bulk.map((t) => ({ applicationId: t.applicationId, expectedSeq: t.eventSeq })), toStageId: stageId, occurredAt, note: note || null }),
@@ -213,6 +235,25 @@ function MoveForm({ stages, crews, initialStageId, target, onOpenChange, onDone 
         </div>
       ) : null}
 
+      {offersInvite ? (
+        <div className="grid gap-3 rounded-md border p-3">
+          <CheckboxRow
+            label="Also send the one-on-one invite"
+            checked={sendInvite}
+            disabled={!inviteReady}
+            onChange={setInviteChoice}
+            hint={
+              occurredAt
+                ? "This move is backdated. Untick the invite if you already invited them another way."
+                : "Asks them to pick a time with the booking link. It goes out within 5 minutes."
+            }
+          />
+          {invite === null ? <p className="text-xs text-muted-foreground">Loading the invite</p> : null}
+          {invite?.error ? <p className="text-sm text-destructive">{invite.error}</p> : null}
+          {invite?.preview && (sendInvite || invite.preview.problem) ? <MessagePreviewCard preview={invite.preview} /> : null}
+        </div>
+      ) : null}
+
       <Field label="Note (optional)">
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} />
       </Field>
@@ -233,7 +274,7 @@ function MoveForm({ stages, crews, initialStageId, target, onOpenChange, onDone 
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
           Cancel
         </Button>
-        <Button type="submit" disabled={pending || !stageId}>
+        <Button type="submit" disabled={pending || !stageId || (offersInvite && invite === null)}>
           {pending ? "Moving" : bulk ? "Move all" : "Move"}
         </Button>
       </DialogFooter>

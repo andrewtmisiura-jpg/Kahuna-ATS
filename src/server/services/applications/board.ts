@@ -4,7 +4,7 @@ import { application, backgroundCheck, entryCode, groupSession, hireStint, openi
 import type { UserRole } from "@/server/auth/roles";
 import type { Actor } from "../actor";
 import { centralDate, daysBetween } from "../time";
-import { listStages, sessionLabel, type ProfileCheck, type ProfileStint, type StageOption } from "./queries";
+import { LIST_SORTS, listStages, sessionLabel, visibleAiScore, type ListSort, type ProfileCheck, type ProfileStint, type StageOption } from "./queries";
 import { isOpenCheck, transition, TransitionError } from "./transition";
 
 // The kanban board (PLAN.md, Admin list: "Kanban: every drag carries the row's
@@ -21,6 +21,8 @@ export type BoardFilters = {
   entryCodeId?: string | "none";
   // Matched against first and last name only.
   search?: string;
+  // "AI score, high to low" within each column, offered while the role shows scores.
+  sort?: ListSort;
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -31,14 +33,16 @@ function first(params: SearchParams, key: string): string | undefined {
   return one && one.trim() ? one.trim() : undefined;
 }
 
-// The board's URL is the filter, the same way the list's is: /admin/board?opening=...&hold=1&session=...&code=...&q=...
+// The board's URL is the filter, the same way the list's is: /admin/board?opening=...&hold=1&session=...&code=...&q=...&sort=...
 export function parseBoardFilters(params: SearchParams, openingId: string): BoardFilters {
+  const sort = first(params, "sort");
   return {
     openingId,
     onHold: first(params, "hold") === "1",
     sessionId: first(params, "session"),
     entryCodeId: first(params, "code"),
     search: first(params, "q"),
+    sort: sort && (LIST_SORTS as readonly string[]).includes(sort) ? (sort as ListSort) : undefined,
   };
 }
 
@@ -49,6 +53,7 @@ export function boardFilterParams(filters: BoardFilters): URLSearchParams {
   if (filters.sessionId) params.set("session", filters.sessionId);
   if (filters.entryCodeId) params.set("code", filters.entryCodeId);
   if (filters.search) params.set("q", filters.search);
+  if (filters.sort) params.set("sort", filters.sort);
   return params;
 }
 
@@ -80,6 +85,8 @@ export type BoardCard = {
   returning: "none" | "returning" | "not_rehire_eligible";
   // Hired with a live hire record tagged Temporary.
   temporary: boolean;
+  // The 1 to 100 AI score staff may see; null when there is none to show.
+  aiScore: number | null;
 };
 
 export type BoardColumn = { stage: BoardStage; cards: BoardCard[] };
@@ -171,13 +178,20 @@ export async function loadBoard(db: Db, filters: BoardFilters, viewer: UserRole,
         priorStints,
         notRehireEligible,
         temporary: temporaryHire,
+        aiScore: visibleAiScore,
       })
       .from(application)
       .innerJoin(person, eq(person.id, application.personId))
       .leftJoin(entryCode, eq(entryCode.id, application.entryCodeId))
       .leftJoin(groupSession, eq(groupSession.id, application.attributedSessionId))
       .where(and(where, isNotNull(application.submittedAt), ne(application.status, "closed")))
-      .orderBy(asc(application.stageEnteredAt), asc(application.submittedAt), asc(application.id)),
+      // Longest in the stage first; sorted by AI score, the highest first, then the cards
+      // without a score to show, each by submitted date.
+      .orderBy(
+        ...(filters.sort === "ai_score"
+          ? [sql`${visibleAiScore} desc nulls last`, asc(application.submittedAt), asc(application.id)]
+          : [asc(application.stageEnteredAt), asc(application.submittedAt), asc(application.id)]),
+      ),
     db
       .select({
         started: sql<number>`count(*) filter (where ${application.submittedAt} is null and ${application.status} <> 'closed')::int`,
@@ -216,6 +230,7 @@ export async function loadBoard(db: Db, filters: BoardFilters, viewer: UserRole,
       unhandledTexts: row.unhandledTexts,
       returning: row.notRehireEligible ? "not_rehire_eligible" : row.otherApplications || row.priorStints ? "returning" : "none",
       temporary: row.status === "hired" && row.temporary,
+      aiScore: row.aiScore,
     });
   }
 

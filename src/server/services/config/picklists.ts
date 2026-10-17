@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, max, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, applicationEvent, hireStint, picklistOption, role } from "@/db/schema";
+import { application, applicationEvent, assessment, hireStint, picklistOption, reviewDecision, role, star } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "@/server/services/actor";
 import { diffChanges, writeAudit } from "@/server/services/audit";
@@ -24,8 +24,8 @@ export const PICKLISTS: { key: PicklistKey; label: string; description: string }
   { key: "not_selected_reason", label: "Not-selected reasons", description: "Why a fine applicant was not taken on." },
   { key: "crew", label: "Crews", description: "Crews a hire can be assigned to on the hire form." },
   { key: "leave_reason", label: "Leave reasons", description: "Why a hire left, with the usual separation type." },
-  { key: "star_reason", label: "Star reasons", description: "Reasons for a star at a group interview (used from Phase 2)." },
-  { key: "assessment_type", label: "Assessment types", description: "Tests such as the ladder test (used from Phase 2)." },
+  { key: "star_reason", label: "Star reasons", description: "Reasons for a star or a concern on a group interview's floor view." },
+  { key: "assessment_type", label: "Assessment types", description: "Tests such as the ladder test, recorded on the profile." },
 ];
 
 export const PICKLIST_KEYS = PICKLISTS.map((list) => list.key);
@@ -54,8 +54,9 @@ export async function getPicklistOption(db: Db, id: string): Promise<PicklistOpt
   return row ?? null;
 }
 
-// True when any application, event or hire row points at the option, which is when
-// its key, list, scope and FCRA flag become part of the historical record.
+// True when any application, event, hire, star, test result or review decision row
+// points at the option, which is when its key, list, scope and FCRA flag become part
+// of the historical record.
 export async function isOptionReferenced(db: Db, optionId: string): Promise<boolean> {
   const [row] = await db
     .select({
@@ -63,7 +64,10 @@ export async function isOptionReferenced(db: Db, optionId: string): Promise<bool
         exists (select 1 from ${application} where ${application.closedReasonOptionId} = ${optionId})
         or exists (select 1 from ${applicationEvent} where ${applicationEvent.reasonOptionId} = ${optionId})
         or exists (select 1 from ${hireStint} where ${hireStint.crewOptionId} = ${optionId})
-        or exists (select 1 from ${hireStint} where ${hireStint.leaveReasonOptionId} = ${optionId})`,
+        or exists (select 1 from ${hireStint} where ${hireStint.leaveReasonOptionId} = ${optionId})
+        or exists (select 1 from ${star} where ${star.reasonOptionId} = ${optionId})
+        or exists (select 1 from ${assessment} where ${assessment.assessmentTypeOptionId} = ${optionId})
+        or exists (select 1 from ${reviewDecision} where ${reviewDecision.reasonOptionId} = ${optionId})`,
     })
     .from(sql`(select 1) as one`);
   return Boolean(row?.referenced);
@@ -207,7 +211,7 @@ export async function updatePicklistOption(
     if (lockedChanged.length > 0 && (await isOptionReferenced(tx, before.id))) {
       throw new ConfigError(
         "picklist_locked",
-        "This option is already used on applications or hires, so its key, list, scope and background flag cannot change. Archive it and add a new one.",
+        "This option is already in use, so its key, list, scope and background flag cannot change. Archive it and add a new one.",
       );
     }
 

@@ -27,7 +27,8 @@ export const metadata = { title: "Applicants" };
 type SearchParams = Record<string, string | string[] | undefined>;
 
 // The list view (PLAN.md, "What staff experience"): counts, the attention strip,
-// filters, search and the rows, for one opening at a time.
+// filters, search and the rows, for one opening at a time, sorted by AI score when
+// the role shows scores and staff pick it.
 export default async function ApplicantListPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
   const user = await pageUser();
@@ -72,6 +73,11 @@ export default async function ApplicantListPage({ searchParams }: { searchParams
         {page.total === 0 ? "No applicants" : `Showing ${from} to ${to} of ${page.total}`}
         {filters.status ? "" : ". Started applications are counted above, not listed; pick a status to see them."}
       </p>
+      {filters.sort === "ai_score" && options.aiScoreSort ? (
+        <p className="mb-2 text-xs text-muted-foreground">
+          Sorted by AI score, highest first; applicants without a score come last. A sorting aid only: it never moves, rejects or messages anyone.
+        </p>
+      ) : null}
       <ApplicantRows page={page} stages={options.stages} crews={picklists.crews} canAct={canAct(user)} profileQuery={profileQuery} />
       {page.pageCount > 1 ? (
         <div className="mt-4 flex items-center justify-between">

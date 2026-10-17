@@ -11,6 +11,10 @@ import { HirePanel } from "@/components/admin/applicants/hire-panel";
 import { MessagesThread } from "@/components/admin/applicants/messages-thread";
 import { NotesSection } from "@/components/admin/applicants/notes-section";
 import { OfferPanel } from "@/components/admin/applicants/offer-panel";
+import { AttendancePanel } from "@/components/admin/applicants/panels/attendance-panel";
+import { InterviewsPanel } from "@/components/admin/applicants/panels/interviews-panel";
+import { ScoringPanel } from "@/components/admin/applicants/panels/scoring-panel";
+import { SendMessagePanel } from "@/components/admin/applicants/panels/send-message-panel";
 import { ProfileHeader } from "@/components/admin/applicants/profile-header";
 import { StageHistory } from "@/components/admin/applicants/stage-history";
 import { PageHeader } from "@/components/admin/page-header";
@@ -53,12 +57,15 @@ export default async function ApplicantProfilePage({ params, searchParams }: { p
   const around = neighbors(await listApplicationIds(db, filters, user.role), profile.application.id);
   const link = (target: string | null) => (target ? (`/admin/applicants/${target}?${listQuery}` as Route) : null);
   const staff = canAct(user);
+  // The Phase 2 panels load their own data (components/admin/applicants/panels).
+  const panel = { applicationId: profile.application.id, user, canAct: staff };
 
   return (
     <div className="mx-auto max-w-3xl">
       <ProfileHeader profile={profile} user={user} listHref={listHref} previousHref={link(around.previous)} nextHref={link(around.next)} />
       <div className="grid gap-3">
         <HirePanel profile={profile} role={user.role} />
+        <ScoringPanel {...panel} />
         {profile.offers.length > 0 || profile.checks.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
             <OfferPanel offers={profile.offers} checks={profile.checks} canAct={staff} />
@@ -66,7 +73,10 @@ export default async function ApplicantProfilePage({ params, searchParams }: { p
           </div>
         ) : null}
         <AnswersSection profile={profile} />
+        <AttendancePanel {...panel} />
+        <InterviewsPanel {...panel} />
         <NotesSection notes={profile.notes} applicationId={profile.application.id} user={user} />
+        <SendMessagePanel {...panel} />
         <MessagesThread messages={profile.messages} unhandled={profile.unhandledTexts} canAct={staff} />
         <StageHistory events={profile.events} />
         <div className="grid gap-3 md:grid-cols-2">
