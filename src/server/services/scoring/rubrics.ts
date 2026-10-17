@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
   aiScore,
@@ -7,6 +7,7 @@ import {
   employer,
   formItem,
   formVersion,
+  MILESTONES,
   person,
   picklistOption,
   pipelineStage,
@@ -349,7 +350,19 @@ export type CalibrationRow = {
   decision: { value: ReviewDecisionValue; reason: string | null; decidedAt: Date } | null;
 };
 
-// The role's most recent current scores, newest first, with the human decision beside each.
+// A person has decided: the application is closed or hired, has reached the one-on-one
+// invite, or its latest screening decision is advance or decline. A hold is not a
+// decision yet.
+const decided = or(
+  inArray(application.status, ["closed", "hired"]),
+  inArray(pipelineStage.milestone, MILESTONES.slice(MILESTONES.indexOf("interview_invited"))),
+  sql`(select d.decision from review_decision d where d.application_id = ${application.id} order by d.decided_at desc, d.created_at desc limit 1) in ('advance', 'decline')`,
+);
+
+// The role's most recent current scores of applications a person has decided, newest
+// first, with the human decision beside each. One nobody has decided yet stays out: the
+// Admin reading this may be the one who decides, and the decision would still be
+// recorded as made without seeing the score (review_decision.ai_score_visible).
 export async function loadCalibration(db: Db, roleId: string, limit = 25): Promise<CalibrationRow[]> {
   const rows = await db
     .select({
@@ -368,7 +381,7 @@ export async function loadCalibration(db: Db, roleId: string, limit = 25): Promi
     .innerJoin(person, eq(person.id, application.personId))
     .innerJoin(rubricVersion, eq(rubricVersion.id, aiScore.rubricVersionId))
     .innerJoin(pipelineStage, eq(pipelineStage.id, application.currentStageId))
-    .where(and(eq(application.roleId, roleId), isNull(application.deletedAt), eq(aiScore.isCurrent, true)))
+    .where(and(eq(application.roleId, roleId), isNull(application.deletedAt), eq(aiScore.isCurrent, true), decided))
     .orderBy(desc(aiScore.completedAt), desc(aiScore.id))
     .limit(limit);
   if (rows.length === 0) return [];

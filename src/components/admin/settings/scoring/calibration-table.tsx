@@ -4,16 +4,20 @@ import { formatCentralDateTime } from "../format";
 import { DECISION_LABELS } from "./format";
 
 // Hidden mode's check of the rubric: the most recent scores beside what people decided,
-// before anyone else sees a number.
+// before anyone else sees a number. Only applications someone has decided are listed,
+// so the number never reaches the person deciding.
 export function CalibrationTable({ rows }: { rows: CalibrationRow[] }) {
   return (
     <div className="grid gap-2">
       <div>
         <h3 className="text-sm font-medium">Recent scores, hidden from staff</h3>
-        <p className="text-xs text-muted-foreground">Compare the AI with what people decided before you make scores visible.</p>
+        <p className="text-xs text-muted-foreground">
+          Compare the AI with what people decided before you make scores visible. An application shows here only once someone has decided, so the
+          score never sways the decision.
+        </p>
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No scores yet. They arrive within a few minutes of each submission.</p>
+        <p className="text-sm text-muted-foreground">Nothing decided yet. A score shows here once someone advances, declines or closes that application.</p>
       ) : (
         <ul className="divide-y rounded-md border text-sm">
           {rows.map((row) => (
@@ -32,7 +36,7 @@ export function CalibrationTable({ rows }: { rows: CalibrationRow[] }) {
                 )}
               </span>
               <span className="text-muted-foreground">
-                {row.decision ? `${DECISION_LABELS[row.decision.value]}${row.decision.reason ? `: ${row.decision.reason}` : ""}` : "No decision yet"}
+                {row.decision ? `${DECISION_LABELS[row.decision.value]}${row.decision.reason ? `: ${row.decision.reason}` : ""}` : "No screening decision"}
                 {` · ${row.closed ? "Closed at " : ""}${row.stage}`}
                 <span className="block text-xs">
                   Rubric v{row.rubricVersion}

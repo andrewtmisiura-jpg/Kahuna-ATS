@@ -285,7 +285,7 @@ When you disqualify, put on hold, or move a scored applicant up to an interview 
 
 ### AI scoring
 
-- Each role has a card with its scoring mode. Off: nothing is scored. Hidden: scored to check the rubric, shown only here, in a table of recent scores beside what a person decided. Visible: staff see the score on the list, board and profile. Hidden and Visible need a published rubric.
+- Each role has a card with its scoring mode. Off: nothing is scored. Hidden: scored to check the rubric, shown only here, in a table of recent scores beside what a person decided. An applicant appears there only once someone has decided (advanced, declined or closed), so nobody sees the score before deciding. Visible: staff see the score on the list, board and profile. Hidden and Visible need a published rubric.
 - **Edit rubric** opens the role's rubric page. Start a draft from the published version; nothing changes for scoring until you publish. A rubric has plain instructions, a short fixed list of job-related flags, and criteria. Each criterion has a weight, what a strong (5), acceptable (3) and weak (1) answer looks like, and the questions it reads. Questions marked never sent to the AI can't be picked.
 - Tick "Asks for something different from version N" when you change what a good answer means, so reports stop comparing old and new grades.
 - **Save draft** saves everything at once. **Publish version N** asks why the rubric is changing; that reason is all it needs. If scoring is on, every submitted application is scored again within a few minutes, up to the daily limit.

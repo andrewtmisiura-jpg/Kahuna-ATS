@@ -425,7 +425,7 @@ describe("what Settings > AI scoring shows", () => {
     });
   });
 
-  it("shows hidden mode's recent scores beside the latest human decision", async () => {
+  it("shows hidden mode's recent scores beside the latest human decision, only once someone has decided", async () => {
     await withRollback(db, async (tx) => {
       const role = await createRubricRole(tx, adminId);
       const draft = await publishedRubric(tx, role);
@@ -439,21 +439,32 @@ describe("what Settings > AI scoring shows", () => {
       };
       const declined = await apply("Declined");
       const undecided = await apply("Undecided");
+      const pending = await apply("Pending");
+      const held = await apply("Held");
+      const passedOver = await apply("Passed");
       await createAiScore(tx, { applicationId: declined, rubricVersionId: draft.id, isCurrent: true, overallScore: 34, completedAt: new Date(Date.now() - 60_000) });
       await createAiScore(tx, { applicationId: undecided, rubricVersionId: draft.id, isCurrent: true, status: "failed", overallScore: null });
+      for (const applicationId of [pending, held, passedOver]) {
+        await createAiScore(tx, { applicationId, rubricVersionId: draft.id, isCurrent: true, overallScore: 61, completedAt: new Date(Date.now() - 120_000) });
+      }
       // An older decision, then the latest one, which the table shows.
       const reasonId = await loadOption(tx, "disqualify_reason", "availability_conflict");
       await tx.insert(reviewDecision).values([
         { id: uuidv7(), applicationId: declined, decision: "hold", aiScoreVisible: false, decidedBy: adminId, decidedAt: new Date(Date.now() - 30_000) },
         { id: uuidv7(), applicationId: declined, decision: "decline", reasonOptionId: reasonId, aiScoreVisible: false, decidedBy: adminId, decidedAt: new Date() },
+        { id: uuidv7(), applicationId: held, decision: "hold", aiScoreVisible: false, decidedBy: adminId, decidedAt: new Date() },
       ]);
+      // Closed as not selected, which writes no screening decision but is decided all the same.
+      await transition(tx, { action: "close", applicationId: passedOver, actor, outcome: "not_selected", reasonOptionId: await loadOption(tx, "not_selected_reason", "roles_filled") });
 
+      // Nobody has decided on Undecided, Pending or Held yet, so the Admin reading this never sees their scores first.
       const rows = await loadCalibration(tx, role.roleId);
       expect(rows.map((r) => [r.name, r.status, r.overallScore, r.decision?.value ?? null, r.decision?.reason ?? null])).toEqual([
-        ["Casey Undecided", "failed", null, null, null],
         ["Casey Declined", "succeeded", 34, "decline", "Availability doesn't fit"],
+        ["Casey Passed", "succeeded", 61, null, null],
       ]);
-      expect(rows[1]).toMatchObject({ rubricVersion: 1, stage: "Submitted", closed: false });
+      expect(rows[0]).toMatchObject({ rubricVersion: 1, stage: "Submitted", closed: false });
+      expect(rows[1]).toMatchObject({ closed: true });
     });
   });
 });
