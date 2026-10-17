@@ -1,6 +1,6 @@
 # Tidepool: Data model
 
-Companion to [PLAN.md](PLAN.md). Postgres, managed with Drizzle and drizzle-kit migrations. Written Tue Oct 13, 2026, rewritten the same day after the owner's feedback: one Phase 1 release (target Fri Oct 23, backstop Fri Oct 30), Phase 2 live Fri Nov 6, Phase 3 live Fri Nov 20.
+Companion to [PLAN.md](PLAN.md). Postgres, managed with Drizzle and drizzle-kit migrations. Written Tue Oct 13, 2026, rewritten the same day after the owner's feedback: one Phase 1 release (target Fri Oct 23, backstop Fri Oct 30), Phase 2 live Fri Nov 6, Phase 3 live Fri Nov 20. Updated Fri Oct 16, 2026, when Phase 2 shipped three weeks early: the P2 sections below describe what was built, including what goes beyond the original spec.
 
 ## Principles
 
@@ -104,8 +104,8 @@ The legal employer and the brand applicants see. Carries sender identity. Seeded
 | daily_send_cap | integer | no | Default 200. Outbound messages per Central day across both channels; editable in Settings > Texting |
 | help_contact | text | yes | The hiring number and hiring email, used on pages, in templates and in the HELP reply |
 | timezone | text | no | Default `America/Chicago` |
-| booking_link_url | text | yes | P2. The one-on-one booking link that invites carry as `{booking_link}`. The service accepts only an `https://` address. Edited in Settings > Message templates |
-| scoring_daily_cap | integer | no | P2. Default 100, check > 0. AI scoring calls per Central day across all roles; past it, scoring jobs wait for the next day (counted as deferred in the cron summary). Edited in Settings > AI scoring |
+| booking_link_url | text | yes | P2. The one-on-one booking link that invites carry as `{booking_link}` and the applicant's status page shows while an invite is out. The service accepts only an `https://` address. Edited by Admins at the top of Settings > Message templates (audited as `employer.booking_link_update`); invites cannot be sent while it is null |
+| scoring_daily_cap | integer | no | P2. Default 100, check > 0. AI scoring calls per Central day across all roles, counted as `ai_score` rows completed that day in any status (each was a model call; Try it and retried transport errors do not count); past it, scoring jobs wait for the next Central midnight (counted as deferred in the cron summary) with one alert email per day. Edited by Admins in Settings > AI scoring, 1 to 1000 (audited as `employer.scoring_cap_update`) |
 
 Standard: id, created_at, updated_at, archived_at. Unique: `key`. Tidepool is the app name, used in the browser title, sign-in page, admin header and alert-email sender; it never appears on applicant pages, in templates or in legal text, which say Kahuna Window Cleaning. Edited in Settings > Texting (texting fields), by `quo:setup` (the Quo phone number id only) and by the seed (the rest). Settings > Texting also shows, read-only, whether the hiring number is connected (the last 4 characters of the Quo id), whether the webhook is connected (a signing secret exists; never the secret) and the newest `quo:setup` result with its date.
 
@@ -123,7 +123,7 @@ Permanent job definition: pipeline, questions, rubric.
 | uses_group_interview | boolean | no | Informational; snow false |
 | sort_order | integer | no | |
 
-Standard: id, created_at, updated_at, archived_at. Unique: `(employer_id, key)`. New applications pin the role's one published `form_version` (no pointer column, so role and form don't reference each other). The two launch roles come from `db:seed`; from Phase 2 (Nov 6) Settings > New role creates one from a template (clone the default pipeline and, optionally, another role's current questions).
+Standard: id, created_at, updated_at, archived_at. Unique: `(employer_id, key)`. New applications pin the role's one published `form_version` (no pointer column, so role and form don't reference each other). The two launch roles come from `db:seed`; from Phase 2 (shipped Oct 16) Settings > Roles and stages > New role creates one from a template role in one transaction (`config/roles.ts`, audited as `role.create`): its live stages, its live role-scoped picklist options (window brings the ladder test and its fail reason) and, unless unticked, its questions as new lineages in a version 1 draft (from the live form, else the draft; same keys, wording, choices, validation, staff guidance, starting-word check, never-send flag, section, order, required flag and attention values; audited as `form.draft_create`). No rubric and no opening are created; the role's page adds a draft opening (`opening.create`), which Settings > Openings then fills in and opens.
 
 #### opening (P1)
 
@@ -158,7 +158,7 @@ Configurable stages per role, each mapped to a fixed milestone.
 | is_system | boolean | no | Started and Submitted: the app moves applications into them; can't be archived |
 | show_on_board | boolean | no | Started is false (shown as a drop-off count) |
 
-Standard: id, created_at, updated_at, archived_at. Unique: `(role_id, key)`. Index: `(role_id, sort_order)`. Stages are archived, never deleted. Editor rule (Phase 2 stage editor, with a Vitest): `key`, `role_id` and `milestone` can't change once any `application_event` references the stage; to remap, archive the stage and add a replacement, so past funnels and stage times never change. Milestones must not decrease as sort order increases (seed validation now, the stage editor later). Several stages may share a milestone. Until the stage editor ships (Nov 6), stages are as seeded.
+Standard: id, created_at, updated_at, archived_at. Unique: `(role_id, key)`. Index: `(role_id, sort_order)`. Stages are archived, never deleted. Editor rule (the Phase 2 stage editor in Settings > Roles and stages, `config/stages.ts`, with Vitests): `key`, `role_id` and `milestone` can't change once any `application_event` references the stage; to remap, archive the stage and add a replacement, so past funnels and stage times never change. Milestones must not decrease as sort order increases (seed validation, then the stage editor). Several stages may share a milestone. Also enforced by the editor: Started and Submitted (the system stages) stay first and are never archived, moved or remapped, and no other stage may take their milestones; a role keeps one live Hired stage, since Hire now and the hire form need it; a stage holding open applications can't be archived (the refusal gives the count). Stage writes are audited as `pipeline_stage.add`, `.update`, `.move`, `.archive` and `.unarchive`.
 
 #### question (P1)
 
@@ -204,7 +204,7 @@ An immutable snapshot of a role's application form.
 | version | integer | no | |
 | status | config_status | no | draft, published, retired |
 | sections | jsonb | no | `[{"key": "basics", "title": "...", "intro": "..."}]` |
-| ai_disclosure_version_id | uuid | yes | FK legal_text_version (kind `ai_disclosure`). The form renders that disclosure on its landing page; the scoring service (P2) refuses any application whose pinned form has null here. Snow form v1 points at `ai_disclosure` v1, so snow can be scored hidden later without a migration; scoring stays off until the owner turns it on |
+| ai_disclosure_version_id | uuid | yes | FK legal_text_version (kind `ai_disclosure`). Snow form v1 points at `ai_disclosure` v1, and the question editor's draft copies the pointer forward. Since Phase 2 it no longer drives the landing page: the landing page shows the newest published `ai_disclosure`, so a new version reaches applicants without a form publish, and an application saw the version published at or before its `started_at` (`scoring/disclosure.ts`, `aiDisclosureForApplication`; null for staff-created and imported applications). To keep that exact, the landing form posts back the version its page showed and a page showing an older one is asked to reload. The planned rule that the scoring service refuses an application whose pinned form has null here was not built |
 | change_reason | text | yes | Required to publish: a written, job-related reason |
 | published_at | timestamptz | yes | |
 | published_by | uuid | yes | FK app_user |
@@ -231,7 +231,7 @@ PK: `(form_version_id, question_version_id)`. One item per lineage per form is c
 
 #### legal_text_version (P1)
 
-Versioned consent text, privacy policy, SMS terms, landing notice and AI disclosure. A consent record points at the exact version the applicant saw; a form version points at the AI disclosure it showed.
+Versioned consent text, privacy policy, SMS terms, landing notice and AI disclosure. A consent record points at the exact version the applicant saw; an application saw the AI disclosure published at or before it started (see `form_version.ai_disclosure_version_id`). Admins publish a new AI disclosure, with a required change note, in Settings > AI scoring (`legal_text.publish`).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -257,9 +257,9 @@ A named message with its purpose, channel and text. Not versioned: `message.body
 | channel | channel | no | sms, email |
 | name | text | no | Staff-facing |
 | subject | text | yes | Email only |
-| body | text | no | Allowed variables: `{first_name}`, `{link}`, `{role_title}`, `{employer_name}`, `{help_contact}`; P2 adds `{session_date}`, `{booking_link}`. `{link}` is rendered only in the message delivered; the stored `message.body` keeps a placeholder (see `resume_token`) |
+| body | text | no | Allowed variables: `{first_name}`, `{link}`, `{role_title}`, `{employer_name}`, `{help_contact}`; P2 adds `{session_date}` (the application's group session, Central time), `{booking_link}` and `{interview_time}` (the one-on-one reminder only, filled from the interview). Times read like "Tue, Nov 3 at 2:30 PM". `{link}` is rendered only in the message delivered; the stored `message.body` keeps a placeholder (see `resume_token`) |
 
-Standard: id, created_at, updated_at, archived_at. Unique (nulls not distinct): `(employer_id, role_id, purpose, channel) where archived_at is null`. Seeded in Phase 1; edited in the Phase 2 template editor.
+Standard: id, created_at, updated_at, archived_at. Unique (nulls not distinct): `(employer_id, role_id, purpose, channel) where archived_at is null`. Seeded in Phase 1; the Phase 2 templates (one-on-one invite, one-on-one reminder, status update and decline, each as a text and an email) come from the `2026-10-16-phase2-templates` change; `group_invite` has none. Settings > Message templates (`messaging/templates.ts`) lets Admins edit the Phase 2 templates' name, subject and body, audited with the old and new wording as `message_template.update`; Hiring Managers read it, Viewers get no access, and the Phase 1 templates are shown read-only. Save is refused unless a text starts with the brand ("Kahuna Window Cleaning:"), ends with "Reply STOP to opt out.", uses GSM-7 characters only and only known placeholders, and each purpose carries its required placeholder: the invite `{booking_link}`, the reminder `{interview_time}`, the status update `{link}` (`{link}` is never allowed in a subject). Long texts, `{role_title}` in a text and similar are warnings.
 
 #### picklist_option (P1)
 
@@ -277,7 +277,7 @@ All small staff-facing picklists in one table: disqualify, withdraw, not-selecte
 | default_separation | separation_type | yes | Leave reasons only; pre-fills voluntary or involuntary |
 | sort_order | integer | no | |
 
-Standard: id, created_at, updated_at, archived_at. Unique (nulls not distinct): `(list_key, employer_id, role_id, key)`. Options for a role = rows matching the role, or the employer with null role, or null employer, not archived. Editor rule (Settings > Picklists, Phase 1, with a Vitest): `list_key`, `employer_id`, `role_id`, `key` and `fcra_adverse` can't change once any row references the option; archive it and add a new one instead. Labels stay editable (audited). This screen is how crews are entered.
+Standard: id, created_at, updated_at, archived_at. Unique (nulls not distinct): `(list_key, employer_id, role_id, key)`. Options for a role = rows matching the role, or the employer with null role, or null employer, not archived. Editor rule (Settings > Picklists, Phase 1, with a Vitest): `list_key`, `employer_id`, `role_id`, `key` and `fcra_adverse` can't change once any row references the option (an application, event or hire stint, and from P2 a star's reason, an assessment's type or a review decision's reason); archive it and add a new one instead. Labels stay editable (audited). This screen is how crews are entered.
 
 ### People and applications
 
@@ -475,7 +475,7 @@ A group interview session. Created in P1 because entry codes and applications re
 | location_name | text | no | |
 | location_address | text | yes | |
 | invited_count | integer | yes | Entered from Indeed |
-| attended_count | integer | yes | Headcount from the sheet until P2 attendee rows exist |
+| attended_count | integer | yes | Headcount typed from the sheet. Once a session has live `attendee` rows, the screens count those instead ("attended": rows when any exist, else this) |
 | status | group_session_status | no | |
 | notes | text | yes | PII text |
 | created_by | uuid | no | |
@@ -558,6 +558,10 @@ Every text and email, in and out. Doubles as the outbound queue that the cron sc
 Standard: id, created_at, updated_at. Unique: `provider_message_id`, `dedupe_key`. Indexes: `(send_after) where status = 'queued'`; `(application_id, created_at)`; `(person_id, created_at)`; `(created_at) where direction = 'inbound' and handled_at is null`. There is no per-callback table (low value, and raw payloads carry PII). A delivery callback applies only when its status ranks higher than the stored one, because callbacks arrive out of order. Inbound texts insert with `on conflict (provider_message_id) do nothing`, and opt-out handling runs only when a row was actually inserted. Webhook redeliveries (Quo and Resend both resend the same event id) are harmless for the same reasons: inbound inserts dedupe on `provider_message_id`, and status updates only move forward.
 
 **The cron service** runs the same codebase every 5 minutes: it claims due `queued` rows with `FOR UPDATE SKIP LOCKED` and sends them, retrying failures up to 3 times; it runs the reminder query (`submitted_at` is null, status open, `started_at` at least 24 hours ago, now between 9:00 and 20:00 Central, person not do-not-contact) and for each match inserts one message (text if the send rules allow, otherwise email) with `dedupe_key = reminder_24h:<application_id>` and `on conflict do nothing`; it writes a heartbeat row; at 3am Central it runs `pg_dump` to the R2 bucket; at 7am Central it sends the daily digest. Resume links are sent inside the request so the applicant gets them at once; cron retries failures. Every run is wrapped in try/catch and errors go through `notifyAdmin`. `GET /health` returns 200 only when the database answers and the heartbeat is under 15 minutes old. A Vitest runs two cron passes at the same moment on one queued row and expects one send. From Phase 2 each pass also queues one-on-one reminders (right after the 24-hour reminders and before sending, so one due now goes out in the same pass, deduped per interview) and runs due `job` rows (after the backup, claiming no new job after two minutes); the heartbeat stays the last step.
+
+**One-on-one reminders (P2, `messaging/interview-reminders.ts`).** Each scheduled, undeleted interview of an open application gets one `one_on_one_reminder`, due at 5pm Central the day before, or right away when the interview is 1 to 20 real hours ahead, and none under an hour ahead. It goes as a text when the person has a current opt-in and texting is on, otherwise by email; when quiet hours would hold the text until less than an hour before, it goes by email instead (or not at all without a usable email). The dedupe key `interview:<interview id>:<scheduled_at ISO>` allows one reminder per booked time, so a rescheduled interview gets a new one (an email fallback adds `:email`). A queued reminder whose interview moved, was canceled, recorded or deleted, whose application closed or was deleted, or whose time passed is canceled with the reason in `error_code` (`interview_rescheduled`, `interview_canceled`, `interview_done`, `interview_started`), which the profile shows; moving an interview back to a time it was booked for before re-queues that time's canceled reminder, since a key is never reused. The reminder goes for every interview kind, phone screens included.
+
+**Staff sends (P2, `messaging/staff-sends.ts`).** Staff send templates, never free text, from three places: "Send a message" on the profile (the one-on-one invite, a status update or the decline), the Move dialog's "Also send the one-on-one invite" on a move into an `interview_invited` stage from an earlier one, and the Close dialog's "Send the decline message" on a disqualified or not-selected close. The channel is chosen for them: a text with a current opt-in when texting is on and the number isn't suppressed, otherwise email, and the decline the other way round (email first, a text only without a usable email). The preview shows this person's values, and a send that would miss a value (no booking link, no help contact) or has no channel is refused with the reason. Sends are queued through `queueMessage` (the cron sends them; the send rules apply then) and audited as `application.message_send` with the purpose, channel, message id, where it came from and the event id. Dedupe keys: `staff_send:<purpose>:<request id>` (one per dialog opening), `invite:<event id>` and `decline:<event id>`. The Move and Close dialogs' messages travel on the transition input (`withMessages`) and are queued inside the transition by `messaging/after-transition.ts`, so a move or close whose message cannot go is rolled back, and board drags, row and bulk moves send nothing. The applicant's status page shows a "Book your interview" button with `employer.booking_link_url` while an invite is out: the application is open in an `interview_invited` stage, an invite was queued after it entered that stage, and no interview is booked, held or missed yet.
 
 **Alerts.** One `notifyAdmin(kind, subject, body)` helper emails the `ALERT_EMAIL` address (the owner's, not hiring@) through Resend, at most once per `kind` per hour (dedupe on `message.dedupe_key = alert:<kind>:<hour>`), carrying ids and never names or numbers. Called on a failed send after retries, a webhook signature failure, a job exception, an uncaught server error (Next.js `onRequestError`), an empty Quo balance and the daily cap. The 7am digest lists applications started and submitted, texts sent, delivered, undelivered and failed, emails bounced, unhandled inbound texts, errors in the last 24 hours and the newest backup's age; in the first week of texting it is how carrier filtering would show up (an undelivered share of 20 percent or more over 10 or more texts, or every undelivered text on one carrier).
 
@@ -719,7 +723,7 @@ One row per one-time content change that `pnpm db:changes` has applied.
 | description | text | no | What the change did, in plain words |
 | applied_at | timestamptz | no | Default now() |
 
-**`pnpm db:changes`** (`src/db/changes`). `index.ts` lists the changes oldest first; each is `{ id, description, run(tx, ctx) }`. For each change the runner opens a transaction, takes a Postgres advisory lock, skips the change if its id is in `applied_change`, otherwise runs it and inserts its `applied_change` row in the same transaction, then logs what it did. A failure rolls the change back with its row and exits non-zero, which stops a deploy. The actor on every audit row is the earliest-created active Admin in `app_user`; with none, the runner refuses. Changes go through the service layer (the question editor's services for forms), so versioning, publishing and audit rules apply as they do on screen; nothing writes versioned tables by hand. Because the id is recorded, a change never runs twice, and something it added that staff later remove is never added back. It is safe on every deploy; the production pre-deploy step (`preDeployCommand` in `railway.json`, which overrides the Railway service settings) is `pnpm db:predeploy`, which runs `pnpm db:migrate && pnpm db:seed && pnpm db:changes`. The first change starts a draft of the snow form from the live version (refusing if a draft is already open, rather than mixing in someone's unpublished edits), adds the "How you work" section and its five questions, and publishes it; applications already started keep the version they pinned.
+**`pnpm db:changes`** (`src/db/changes`). `index.ts` lists the changes oldest first; each is `{ id, description, run(tx, ctx) }`. For each change the runner opens a transaction, takes a Postgres advisory lock, skips the change if its id is in `applied_change`, otherwise runs it and inserts its `applied_change` row in the same transaction, then logs what it did. A failure rolls the change back with its row and exits non-zero, which stops a deploy. The actor on every audit row is the earliest-created active Admin in `app_user`; with none, the runner refuses. Changes go through the service layer (the question editor's services for forms), so versioning, publishing and audit rules apply as they do on screen; nothing writes versioned tables by hand. Because the id is recorded, a change never runs twice, and something it added that staff later remove is never added back. It is safe on every deploy; the production pre-deploy step (`preDeployCommand` in `railway.json`, which overrides the Railway service settings) is `pnpm db:predeploy`, which runs `pnpm db:migrate && pnpm db:seed && pnpm db:changes`. The first change starts a draft of the snow form from the live version (refusing if a draft is already open, rather than mixing in someone's unpublished edits), adds the "How you work" section and its five questions, and publishes it; applications already started keep the version they pinned. The list today, in order: `2026-10-16-snow-behavioral-questions`; `2026-10-16-phase2-templates` (the eight Phase 2 templates from `content/legal/messages.md`, inserted only where no live employer-wide template exists for that purpose and channel, through the template service); `2026-10-16-snow-starter-rubric` (the snow starter rubric, published as version 1 through the rubric editor's services with scoring set to visible, plus its Try it samples; it reads the questions the first change publishes, so it stays after it, and when snow already has a rubric it logs that and does nothing). A new change goes at the end.
 
 #### integration_secret (P1, added Oct 16)
 
@@ -752,7 +756,11 @@ A name from a group interview sign-in sheet or door check-in.
 
 Standard: id, created_at, updated_at, deleted_at, redacted_at. Index: `(group_session_id)`, `(mobile_e164)`. Partial unique: `(group_session_id, application_id) where application_id is not null`. Check: `redacted_at is not null or name_as_written is not null`. Matching links automatically only on an exact mobile match; name matches are suggestions a person confirms.
 
-**The door check-in kiosk.** `/check-in/<group_session id>` (the `(kiosk)` route group) is a page on a tablet a staff member signs in on and hands to people arriving at the session; each check-in is an `attendee` row with source `door_checkin`. It needs the same sign-in as the admin pages (a request without a session goes to sign-in and comes back) and only Admins and Hiring Managers may open it; the layout and every kiosk page check that themselves. People at the door see it, so it says Kahuna Window Cleaning, never Tidepool, has no admin navigation, so nobody there can reach the rest of the app, and is never indexed.
+**Who came and matching (P2, `services/sessions`).** Staff type the sign-up sheet into the session page's "Who came" card (source `paper_sheet`, or `staff_added` for someone not on the sheet); rows can be edited and soft-deleted, and the service keeps one live row per mobile per session. An exact mobile (normalized like the landing form) links a row to the person's live application on the session's opening (`match_method = phone_match`, `matched_by` null as a system match). Matching runs when a row is added or edited, at a kiosk check-in, when a new application is created on the landing form (in a savepoint that only logs a failure, so it never stops anyone applying), on every load of the session page and the floor view, and from "Match now". A number marked shared, or an application on another opening, never auto-links, and an application gets at most one row per session. Name matches are suggestions only: the same last name with the same first name or first initial, ignoring case, accents, punctuation, "Last, First" order, middle names and Jr./Sr.; staff confirm them (`staff_confirmed`) or dismiss them, and can link anyone on the opening by hand. Unmatch, removing a row and an edit that changes a phone-matched mobile drop the link. There is no table of refused pairs: the `attendee.unmatch` and `attendee.suggestion_dismiss` audit rows are read back, so a pair staff turned down is never auto-linked or suggested again. A link also sets the application's `attributed_session_id` (method `phone_match` or `staff_confirmed`) when it has none, and a `door_checkin` link sets a blank `group_interview_arrival` (`on_time` if checked in no later than 5 minutes after `starts_at`, else `late`); sheet and staff rows never set arrival. Both are audited (`application.session_attribution`, `application.arrival_change`, with the attendee and session ids), and undoing the link reverts them only while the latest such audit row came from that attendee, so a later staff change is kept. `group_session.opening_id` can't change while any attendee row is matched. Audit actions: `attendee.add`, `.update`, `.remove` (name and mobile recorded as `"[changed]"`), `attendee.match`, `attendee.unmatch`, `attendee.suggestion_dismiss`. Viewers see names, marks and arrival on the profile's Group interview card, but no mobile, no session link and no buttons.
+
+**The door check-in kiosk.** `/check-in/<group_session id>` (the `(kiosk)` route group) is a page on a tablet a staff member signs in on and hands to people arriving at the session; each check-in is an `attendee` row with source `door_checkin`. It needs the same sign-in as the admin pages (a request without a session goes to sign-in and comes back) and only Admins and Hiring Managers may open it; the layout and every kiosk page check that themselves. People at the door see it, so it says Kahuna Window Cleaning, never Tidepool, has no admin navigation, so nobody there can reach the rest of the app, and is never indexed. It is open only for a scheduled or held session on the session's Central date; otherwise, and for an unknown id, it shows a plain message. It asks for a name and mobile (autofill off), never shows other attendees, records no consent, and shows "Thanks, <first name>." for 5 seconds before resetting. The same mobile twice updates the existing row and keeps its first check-in time. Check-ins write no audit row, like the landing form; the row records its source and time.
+
+**The floor view.** `/admin/sessions/<id>/floor` is the phone screen staff use during the session: each name has Star and Concern buttons with per-attendee counts, reasons from the role's `star_reason` picklist, a find-a-name filter and Refresh.
 
 #### star (P2)
 
@@ -764,16 +772,16 @@ Standard: id, created_at, updated_at, deleted_at, redacted_at. Index: `(group_se
 | reason_option_id | uuid | yes | picklist `star_reason` |
 | note | text | yes | Max 140 characters (check). PII text |
 
-Standard: id, created_at, deleted_at. Partial unique: `(attendee_id, user_id, mark) where deleted_at is null`.
+Standard: id, created_at, deleted_at. Partial unique: `(attendee_id, user_id, mark) where deleted_at is null`. A star's reason is optional; a concern needs a reason or a note, and a reason whose option has `requires_note` needs a note. Giving a mark you already gave is a no-op, and tapping your own mark takes it back (soft delete); only your own marks can be removed. Audited as `star.add` and `star.remove` (the note as `"[changed]"`). The profile's Group interview card lists every mark with its giver and time.
 
 #### rubric (P2)
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | role_id | uuid | no | Unique |
-| scoring_mode | scoring_mode | no | off, hidden, visible. Default off for both roles. Snow applicants see the AI disclosure from launch (`form_version.ai_disclosure_version_id`), so the owner may turn snow to hidden once a snow rubric exists; the default stays off. Window stays off until the window rubric is published |
+| scoring_mode | scoring_mode | no | off, hidden, visible. Default off. Snow: visible since Oct 16, 2026, at the owner's request, set by the `2026-10-16-snow-starter-rubric` change that publishes the snow starter rubric (see Seed data). Window: off until the owner's window rubric is published. Hidden and visible need a published version (service). Off stops model calls at once: a score job for a role with scoring off waits unclaimed until it is turned back on |
 
-Standard: id, created_at, updated_at. The live version is the one published `rubric_version` (partial unique there), so there is no pointer column. Rubrics are written in the P2 rubric editor (Admin only).
+Standard: id, created_at, updated_at. The live version is the one published `rubric_version` (partial unique there), so there is no pointer column. Rubrics are written in the P2 rubric editor (Admin only): Settings > AI scoring lists every role with its mode, published version, Re-score all, version history and, in hidden mode, a table of the 25 most recent current scores beside the latest screening decision; each role's page (`/admin/settings/scoring/<role id>`) holds the draft editor, the publish dialog and Try it. One rubric per role, created with scoring off (`rubric.create`); mode changes are audited as `rubric.mode_change`.
 
 #### rubric_criterion (P2)
 
@@ -800,6 +808,8 @@ Standard: id, created_at, archived_at. Unique: `(rubric_id, key)`.
 
 Standard: id, created_at. Unique: `(rubric_id, version)`. Partial unique: `(rubric_id) where status = 'published'`; publishing a new version retires the old one in the same transaction. Trigger: immutable once published. The overall-score formula is recorded in `ai_score.prompt_version`; a version that changes only weights can recompute `overall_score` from the stored `ai_criterion_score` rows without a model call.
 
+Editing (`scoring/rubrics.ts`): a role has at most one draft, started as a copy of the published version (`rubric.draft_create`) and saved whole (`rubric.draft_update`): instructions, flags as `{key, label}` (keys made from the label when blank, then fixed), and criteria in order with name, weight (above 0, at most 999.99, whole hundredths), the three guidance texts, the lineages read and `meaning_changed`. At most 20 criteria and 20 flags; guidance at most 2000 characters each. A draft can be discarded (`rubric.draft_discard`). Publishing needs a written change reason and never a Try it run, checks the questions again (so a lineage marked never-send after the save blocks it), retires the old version in the same transaction, and is audited as `config.publish` with entity `rubric_version`. Publishing needs no extra step to re-score: the next jobs pass queues a score against the new version for every submitted application of a role in hidden or visible mode.
+
 #### rubric_version_criterion (P2)
 
 | Column | Type | Null | Notes |
@@ -809,20 +819,20 @@ Standard: id, created_at. Unique: `(rubric_id, version)`. Partial unique: `(rubr
 | name | text | no | |
 | guidance_strong / guidance_acceptable / guidance_weak | text | no | |
 | weight | numeric(5,2) | no | Check > 0 |
-| question_ids | uuid[] | no | Question lineages this criterion reads. The service rejects any lineage with `ai_never_send` |
-| meaning_changed | boolean | no | Default false. True when this criterion's guidance asks for something materially different from the previous version; reports stop pooling across it |
+| question_ids | uuid[] | no | Question lineages this criterion reads: only live lineages of the rubric's role. The service rejects any lineage with `ai_never_send` at save and again at publish, and scoring refuses a snapshot that would include one |
+| meaning_changed | boolean | no | Default false. True when this criterion's guidance asks for something materially different from the previous version; reports stop pooling across it. The editor keeps it only on a criterion that is in the published version |
 | sort_order | integer | no | |
 
 PK: `(rubric_version_id, criterion_id)`. Immutable with its version.
 
 #### rubric_test_case (P2)
 
-Optional sample answers. Cases in one group say the same thing in different forms (standard, broken English, very short). A "Try it" button in the rubric editor scores them against the draft and shows the results side by side; nothing is stored and nothing blocks publishing. The owner's Phase 2 acceptance check is that the variants score within a few points of each other.
+Optional sample answers. Cases in one group say the same thing in different forms (standard, broken English, very short). A "Try it" button in the rubric editor scores them against the draft (or the published version when no draft is open) with the same scorer and engine as the scoring job, at most three calls at a time, and shows the results side by side with each group's spread (highest minus lowest; over 10 points is flagged); nothing is stored, nothing counts toward the daily cap, and nothing blocks publishing. A case that leaves a criterion unanswered is not sent. The owner's Phase 2 acceptance check is that the variants score within a few points of each other. Samples are added, edited and archived on the rubric page (`rubric_test_case.create`, `.update`, `.archive`) and may only answer this role's questions that can be sent to the AI.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | rubric_id | uuid | no | |
-| group_key | text | no | |
+| group_key | text | no | A key made from the typed group name ("Solid answers" becomes `solid_answers`) |
 | variant | text | no | e.g. standard, broken_english, short |
 | answers | jsonb | no | `{question_key: value}` |
 
@@ -834,24 +844,26 @@ Standard: id, created_at, archived_at.
 |---|---|---|---|
 | application_id | uuid | no | |
 | rubric_version_id | uuid | no | |
-| model_id | text | no | |
-| prompt_version | text | no | Includes the overall-score formula version |
+| model_id | text | no | The model that answered (`SCORING_MODEL`, default `claude-opus-5-5`, or the fallback model the API used) |
+| prompt_version | text | no | Includes the overall-score formula version: `prompt-1/overall-1/effort-medium` for the live scorer, `fake-1/overall-1` for the stand-in |
 | status | ai_score_status | no | |
 | input_snapshot | jsonb | no | Exactly what was sent: an anonymous id plus answers to the lineages the rubric's criteria read, never an `ai_never_send` one. PII text. A test scans it for the person's name, phone and email |
 | raw_output | jsonb | yes | PII text |
 | overall_score | smallint | yes | Check 1 to 100; set if and only if status = succeeded (check). Computed by the app, not asked of the model: `round(1 + 99 * (weighted mean of criterion scores - 1) / 4)` with the rubric version's weights. Replaces the brief's Advance / Review / Decline. A failed or invalid result shows "not scored", never a low number |
 | rationale | text | yes | PII text |
 | flags | text[] | yes | Keys from `allowed_flags` only (service rejects others) |
-| keyword_hits | text[] | yes | Protected-trait keyword scan of the rationale; a hit shows as a chip on the profile |
-| is_current | boolean | no | |
-| hidden_from_reviewers | boolean | no | |
-| scored_after_decision | boolean | no | e.g. a re-score after the human decided |
+| keyword_hits | text[] | yes | Protected-trait keyword scan of the rationales (the list leaves out "black" and "white", which snow answers use for black ice and white-outs); a hit shows as a chip to Admins only and sends one alert per score |
+| is_current | boolean | no | The newest completed score of the application, whatever its status, so a failed re-score replaces an older number with a "not scored" line until it is re-scored |
+| hidden_from_reviewers | boolean | no | Set when the score was made in hidden mode; such a score stays hidden after the role switches to visible |
+| scored_after_decision | boolean | no | Set when a review decision exists or the application is closed or hired when the score lands, e.g. a re-score after the human decided |
 | requested_by_type / requested_by_user_id | actor_type / uuid | no / yes | |
 | input_tokens / output_tokens | integer | yes | |
 | error | text | yes | |
 | completed_at | timestamptz | yes | |
 
 Standard: id, created_at. Partial unique: `(application_id) where is_current`. Index: `(rubric_version_id)`. Only `is_current` ever changes after completion (trigger: the immutability function's `ai_score` rule, keyed on `completed_at`; the Phase 3 purge is exempt through the same session setting as the append-only rule, so it can strip the PII text columns). The model returns only per-criterion scores (1 to 5), a short rationale per criterion and an overall rationale, and flags from the allowed list, through the SDK's structured output with a strict schema. The profile shows the number with the per-criterion scores, the rationale and the rubric version beside it. Re-scoring runs sequentially through the `job` table.
+
+**Scoring (P2, `services/scoring`).** One score job per application and rubric version (see `job`). The input snapshot reads only the lineages the version's criteria name, under a fresh random id, with emails, US phone numbers and the person's names (whole words, any case) redacted, and never an `ai_never_send` lineage; an application with no answer for some criterion is not sent and gets no row (the profile says it has no answers to the questions the rubric reads). The live scorer (`scoring/anthropic.ts`) makes one Messages API call with the fairness rules and the rubric as cached system text, the anonymous answers as the user message, a strict JSON schema allowing only the rubric's criterion keys, integer grades 1 to 5 and its flags, effort medium and server-side fallbacks on; no temperature, tools or prefill. A refusal is stored as failed (`error = refusal`); a reply that breaks the rubric is `invalid_output`; timeouts, 408, 409, 429 and 5xx are retried by the job runner, and any other 4xx or a missing `ANTHROPIC_API_KEY` pauses scoring for the pass with an hourly alert. A score row and its criterion rows are written in one transaction that makes the new score current; scoring never writes an event, a message or a stage change. Everyone who can open the profile sees a visible score; only Admins see the keyword chips and re-score, from the profile (`ai_score.rescore_request`) or for a whole role in Settings (`ai_score.rescore_role`). The list and the board show an "AI score N" badge and can sort by it (unscored last) while the role is visible.
 
 #### ai_criterion_score (P2)
 
@@ -882,7 +894,7 @@ The human decision, separate from stage moves, so AI-vs-human agreement never ha
 
 Standard: id, created_at. Index: `(application_id, decided_at)`. Check: `decision <> 'decline' or reason_option_id is not null`. Trigger: append-only; the latest row is current.
 
-Rule: the decision compared with the AI is the **screening** decision. For any application with a current `ai_score` that has not yet reached `interview_invited`, each of these writes a decision in the same transaction: a staff disqualification (decline, with the same reason), a move to a stage at or after `interview_invited` (advance), or a Hold (hold). A later screening action supersedes a Hold. Once the application has reached `interview_invited`, nothing more is written, so a later ladder-test failure is not recorded as the reviewer overruling the score. Moving into the Reviewed stage alone writes nothing. `not_selected` and `withdrew` closures write no decision. `ai_score_id` and `ai_score_visible` come from the current score. Without this rule, quick declines from the Submitted column would drop out of the agreement report, and whether the score was visible could not be reconstructed later.
+Rule: the decision compared with the AI is the **screening** decision. For any application with a current `ai_score` that has not yet reached `interview_invited`, each of these writes a decision in the same transaction: a staff disqualification (decline, with the same reason), a move or a reopen to a stage at or after `interview_invited` (advance), or a Hold (hold). A later screening action supersedes a Hold. Once the application has reached `interview_invited`, nothing more is written, so a later ladder-test failure is not recorded as the reviewer overruling the score. Moving into the Reviewed stage alone writes nothing. `not_selected` and `withdrew` closures write no decision. `ai_score_id` and `ai_score_visible` come from the current score (visible means the role is in visible mode, the score was not made hidden and it is a number), and the decision copies the event's note and time. Built in `scoring/after-transition.ts`, which `transition()` calls inside every event, so list and bulk moves, board drags, Hire now, holds and closes all write it the same way; voided events don't count when deciding whether `interview_invited` was reached. Without this rule, quick declines from the Submitted column would drop out of the agreement report, and whether the score was visible could not be reconstructed later.
 
 #### interview (P2)
 
@@ -892,22 +904,24 @@ Rule: the decision compared with the AI is the **screening** decision. For any a
 | kind | interview_kind | no | |
 | status | interview_status | no | |
 | scheduled_at | timestamptz | yes | |
-| booked_via | text | yes | booking_link, phone, in_person |
+| booked_via | text | yes | booking_link, phone, in_person (`INTERVIEW_BOOKED_VIA`, checked in the service) |
 | interviewer_user_id | uuid | yes | |
 | held_at | timestamptz | yes | |
 | overall_grade | interview_grade_value | yes | |
 | recommendation | interview_recommendation | yes | |
-| notes | text | yes | PII text. No medical observations |
-| notion_url | text | yes | |
+| notes | text | yes | PII text. No medical observations. At most 4000 characters (service) |
+| notion_url | text | yes | An `https://` link on notion.so or notion.site (or a subdomain), with no user name, password or port (service) |
 
 Standard: id, created_at, updated_at, deleted_at, redacted_at. Index: `(application_id)`, `(scheduled_at)`.
+
+Recorded on the profile's Interviews card (`services/interviews`), by Admins and Hiring Managers; Viewers read. The date and time are entered as Central wall-clock values and turned into `scheduled_at` through the Central-time helper. Staff schedule (refused on a closed application), reschedule or cancel an interview only while it is `scheduled`, then record it `held` (with `held_at`, grades, an overall grade, a recommendation, notes and the Notion link) or `no_show`; a held interview or a no-show is final, so another try is a new interview. Audited as `interview.schedule`, `.reschedule`, `.cancel` and `.result` (notes and the link as `"[changed]"`). Nothing here moves or closes an application, and closing or hiring one leaves its interviews as they are: the card points out an interview still scheduled on a closed application, and after a no-show it points at Close with the "No-show to one-on-one" reason. Each scheduled interview of an open application gets the one-on-one reminder (see `job` and the cron).
 
 #### interview_grade (P2)
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | interview_id | uuid | no | |
-| category_key | text | no | One of the scorecard categories the interview skill uses; keys are config, not an enum |
+| category_key | text | no | One of the scorecard categories, which are configuration in code (`interviews/categories.ts`: reliability, work_ethic, communication, coachability, safety, customer_presence), not an enum. A grade under a key later dropped stays on its interview and still shows |
 | grade | interview_grade_value | no | |
 
 PK: `(interview_id, category_key)`.
@@ -926,11 +940,13 @@ The ladder test and any future per-role test. Types come from the `assessment_ty
 | note | text | yes | Restricted. Never medical observations. PII text |
 | voided_at | timestamptz | yes | |
 
-Standard: id, created_at, redacted_at. Partial unique: `(application_id, assessment_type_option_id) where voided_at is null`.
+Standard: id, created_at, redacted_at. Partial unique: `(application_id, assessment_type_option_id) where voided_at is null`. Recorded on the profile's Interviews card, one card per test the role uses (only window has the ladder test), with `administered_on` a Central date that can't be in the future and `administered_by` the signed-in user. A mistake is voided (it stays, crossed out) and the test recorded again; audited as `assessment.record` and `assessment.void`. Viewers never receive the note. A fail closes nobody; the card points at Close with the "Did not pass the ladder test" reason.
 
 #### job (P2)
 
 Scheduled work beyond sending, starting with P2 scoring (including re-scoring, which runs sequentially through this table) and later the P3 purge. In P1 the cron service sends due `message` rows and inserts reminders directly, so no job table is needed yet.
+
+The one kind so far is `score_application`, payload `{application_id, rubric_version_id, requested_by_user_id?}` (validated with zod; a payload that fails at run time goes dead at once). Dedupe keys: `score:<application id>:<rubric version id>` for the automatic job, which a submit queues and the cron's sweep queues for every submitted application of a hidden or visible role with no score and no such job for the published version (so publishing a version re-scores on the next pass), and `rescore:<application id>:<rubric version id>:<request id>` for an Admin's re-score. The cron's jobs step (`jobs/run.ts`) runs the sweep, then claims one due job at a time with `FOR UPDATE SKIP LOCKED`, marking it running with `locked_at`, `locked_by` and `attempts + 1`, and claims nothing new after its two-minute budget. A failure retries after min(2^attempts, 60) minutes; at `max_attempts` the job is dead, with one alert per job (`job_dead:<id>`). A job left running for 15 minutes goes back to retry, or dead on its last attempt. A job for a role with scoring off, of an unknown kind or with a malformed application id is never claimed. At the employer's `scoring_daily_cap` jobs move to the next Central midnight with one alert per employer per day (`scoring_daily_cap:<employer id>:<Central date>`). A missing API key or another refusal that a retry won't fix pauses scoring for the rest of the pass with one alert an hour (`scoring_unavailable`); a missing key puts the job back without spending an attempt. A keyword hit alerts once per score (`keyword_hits:<ai_score id>`).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -1011,6 +1027,8 @@ Deletion requests and Minnesota personnel-record requests (7 working days) are a
 | Keyword classifier for opt-out texts | Not built. A person reads every inbound text, with an "Unhandled texts" badge on the list; a classifier that misses "pls dont text me" gives false comfort |
 | Per-callback message status table | Latest status on `message` |
 | Rubric test results table | Not stored; "Try it" shows results on screen |
+| Table of attendee matches staff turned down | The `attendee.unmatch` and `attendee.suggestion_dismiss` audit rows, read back as the block list (no migration) |
+| Interview scorecard category table | A code constant (`interviews/categories.ts`); grades keep their key |
 | Current-score pointer on application | `ai_score.is_current` with a partial unique index |
 | Rubric pointer on opening | The role's one published rubric version |
 | Storm call-out log | Not built. Season-end rating plus storms worked, rebuildable from payroll |
@@ -1088,7 +1106,7 @@ Common rules: applications with `exclude_from_analysis`, `origin = imported` or 
 
 Group by role, opening, source, entry channel and `attributed_session_id` (null shows as "no session").
 
-**Group interview attendance vs applications.** Per `group_session`: invited (`invited_count`), attended (`attended_count`, or count of `attendee` rows from P2), started and submitted (applications with that `attributed_session_id`, which the service keeps within the session's opening), and from P2 "attended, never applied" (attendees with no match) and "applied, not on sheet" (applications with no attendee row). Applicants who scanned a generic role QR at a session only count once matched by phone or by staff. Conversion is submitted divided by attended.
+**Group interview attendance vs applications.** Per `group_session`: invited (`invited_count`), attended (the count of live `attendee` rows when the session has any, else `attended_count`, the same rule as the screens), started and submitted (applications with that `attributed_session_id`, which the service keeps within the session's opening), and from P2 "attended, never applied" (attendees with no match) and "applied, not on sheet" (applications with no attendee row). Applicants who scanned a generic role QR at a session only count once matched by phone or by staff. Conversion is submitted divided by attended.
 
 **Retention by role, source and hire cohort.** From non-voided `hire_stint` rows joined to `opening` and, where present, `application.source`. An opening's `season_end_on` is required before its retention is reported, so a window end is never computed over a null. Each stint is classified in this order:
 0. `is_temporary`: its own bucket, shown as "temporary: N" (with "ended as planned" and "left early" counts when `planned_end_on` is set) and left out of both retained and lost at every window and at season end. Their leaving is the plan, not a signal.
@@ -1111,7 +1129,7 @@ Season-end retention = `completed_season`; an active stint past `season_end_on` 
 - Per-opening wide export: one row per application with contact fields, status, closed outcome, closed reason key and label, hold, origin, `exclude_from_analysis`, stage, first-reached date per milestone, source, entry channel, sessions, `group_interview_arrival`, `median_text_reply_minutes` and `text_reply_count`, and one column per question lineage per form version (`<key> (v<N>)`), since the question editor ships at launch and a v2 can exist in week one. Each lineage with a starting-word check gets a `<key> check` column (pass, fail or blank) after its last version.
 - Long files: answers (with `check_result`: pass, fail or blank); stage events; notes (restricted excluded); message log (links shown as "[application link]"); consent events; offers; background checks (status and dates only); hires (with `is_temporary` and `planned_end_on`); entry codes with daily scan counts; sessions.
 - Dictionary files, so the long files can be read outside the app: roles, openings with season dates, stages with milestones, question versions with prompt text, option keys and labels, the starting-word check and the staff notes, picklist options with keys and labels.
-- P2 adds scores (the 1 to 100 number), criterion scores, decisions, attendees, stars, interviews and assessments.
+- P2 adds scores (the 1 to 100 number), criterion scores, decisions, attendees, stars, interviews and assessments, and the attendee count in the sessions file. Not built yet: they follow the Phase 2 release (PLAN.md, Phase 2, Deferred), and the interviews and assessments files will leave out `assessment.note`, which is restricted like restricted notes.
 - The read-only database user covers any question the files don't.
 
 ## Key invariants and how they are enforced
@@ -1143,7 +1161,11 @@ Season-end retention = `completed_season`; an active stint past `season_end_on` 
 | A one-time content change runs once | DB: `applied_change` primary key, inserted in the change's own transaction under an advisory lock (Vitest: a second run is a no-op) |
 | The overall score is computed, 1 to 100, and a failed result is "not scored" | DB: check 1 to 100, set exactly when the score succeeded. Service: formula recorded in `prompt_version` |
 | A completed AI score never changes except `is_current` | DB: the immutability trigger's `ai_score` rule (the Phase 3 purge exempt) |
-| One current AI score per application; every scored disqualification, Hold or move to `interview_invited` or later, made before `interview_invited`, has a review decision | DB: partial unique index. Service: decision written in the same transaction (P2) |
+| One current AI score per application; every scored disqualification, Hold or move to `interview_invited` or later, made before `interview_invited`, has a review decision | DB: partial unique index. Service: decision written in the same transaction (P2), from every staff path (Vitest) |
+| A rubric never reads a never-send question | Service: the rubric editor refuses the lineage at save and at publish, and the scoring snapshot refuses it too (Vitests) |
+| AI scoring stays under the daily cap and stops when scoring is off | Service: the job runner moves jobs to the next Central midnight at `scoring_daily_cap` (Vitest across Nov 1) and never claims a job for a role with scoring off |
+| A move or close and the template it asks to send commit together | Service: the message is queued inside the transition, which rolls back when it cannot go (Vitest) |
+| An attendee links to an application automatically only on an exact mobile on the same opening | DB: one row per application per session (partial unique). Service: shared numbers and other openings only suggest; staff confirm name matches (Vitests) |
 | No background check without a live offer | DB: non-null FK. Service: the offer belongs to the application, is not deleted and its response is pending or accepted (Vitest) |
 | Background-based disqualification waits 5 weekdays after that check's pre-adverse notice | Service: the dialog names the check or checks relied on (stored in event metadata), each needing `pre_adverse_notice_on` at least 5 weekdays before `occurred_at`; the date is write-once except for Admins (Vitest). DB: final adverse date requires a pre-adverse date |
 | While a check is open, no rejection skips the FCRA steps | Service: closing as disqualified or not selected, or rescinding an offer, needs a background-based reason under the rule above or a recorded statement that the decision doesn't rely on the report (event metadata plus `audit_log`). The open check shows at the top of the dialog (Vitest) |
@@ -1232,7 +1254,7 @@ Disqualified, Withdrew and Not selected are closed outcomes, not stages (change 
 
 ### Snow removal question set (form version 1)
 
-Snow scoring is off by default. Snow form v1 points at `ai_disclosure` v1, shown on the landing page from launch, so you can turn snow to hidden mode in November once a snow rubric exists; the default stays off. Seeded `ai_never_send` lineages: `age_18_plus`, `essential_functions`, `job1_employer`.
+Snow scoring was off at launch. Snow form v1 points at `ai_disclosure` v1, shown on the landing page from launch, so snow could be scored later without a migration; since Oct 16 the snow starter rubric change publishes a snow rubric and turns snow scoring to visible (see below). Seeded `ai_never_send` lineages: `age_18_plus`, `essential_functions`, `job1_employer`.
 
 | # | Section | Key | Type | Prompt | Options (key: label) | Req | Attention | Change from the brief |
 |---|---|---|---|---|---|---|---|---|
@@ -1262,6 +1284,19 @@ The owner's five behavioral questions, added after the existing sections in a ne
 | 17 | forgot_equipment | You're working a job alone, halfway done, and realize you forgot equipment you need to finish. The shop is 40 minutes away and your manager isn't answering. What do you do? | Strong: tells the customer, finishes what they can, keeps trying the manager or texts, offers options. Red flag: leaves without telling anyone, or just goes home. Hypothetical question, so a weaker signal than the other four. | |
 
 The instruction in #16 stays plain text, not bold, so it tests whether the applicant actually read it.
+
+### Snow starter rubric (Oct 16, 2026, from `pnpm db:changes`)
+
+The owner asked for snow to be scored, visibly, from Oct 16. The change `2026-10-16-snow-starter-rubric` publishes snow rubric version 1 through the rubric editor's services, with the change reason "Starter rubric from the owner's notes on the snow questions (Oct 16, 2026). The owner asked for snow to be scored.", and sets snow's scoring mode to visible. Its guidance comes from the staff notes on the five behavioral questions; the Blue question is not scored (its pass or fail is already a badge on the profile). The instructions tell the AI the job, to reward specific real examples, to judge only what the person did (spelling and grammar don't matter), to grade Integrity only on the work mistake (ignoring health, family or legal matters), and that Problem solving is the weakest signal.
+
+| Criterion (key) | Reads | Weight |
+|---|---|---|
+| Reliability (`reliability`) | `missed_commitment` | 30 |
+| Integrity (`integrity`) | `unnoticed_mistake` | 25 |
+| Work ethic (`work_ethic`) | `hardest_physical_job` | 30 |
+| Problem solving (`problem_solving`) | `forgot_equipment` | 15 |
+
+Flags: `no_call_no_show`, `blames_others`, `hid_mistake`, `left_job_unfinished`, `unsafe_shortcut`. Try it samples: two groups, `solid_answers` and `red_flag_answers`, each written standard, broken English and short, with no names or digits. The owner reviews the wording, weights, flags and samples in Settings > AI scoring and publishes changes with a reason. The window rubric is the owner's work; window scoring stays off until it is published.
 
 ### Window cleaning starter set (seeded as a draft form version; published in the question editor before the window opening opens)
 
@@ -1347,7 +1382,7 @@ Decided: consent covers this application only; returning applicants opt in again
 `privacy_policy` and `sms_terms` v1: drafted Oct 14 for your approval. The privacy policy states that mobile numbers and opt-in data are not shared with third parties for marketing, names the hiring number and the office number, and says that backups are kept 35 days and how long provider message logs are kept.
 Public opt-in page (`/text-messages`, permanent, live with the production shell): a screenshot of the landing form with the exact `sms_consent` wording and where applicants find the form (Indeed messages, flyers, group interviews). Good practice for any future registration question, because the landing form itself only resolves while an opening is open. It is updated whenever `sms_consent` gets a new version.
 
-Templates (seeded; editable in the Phase 2 template editor):
+Templates (seeded; the Phase 1 ones stay read-only in Settings > Message templates):
 
 | Purpose | Channel | Body |
 |---|---|---|
@@ -1358,7 +1393,20 @@ Templates (seeded; editable in the Phase 2 template editor):
 | reminder_24h | email | Subject: Your application isn't finished yet. Body: same message with the link |
 | submit_confirmation | email | Subject: We got your application. Body: a person on our team reviews every application within 3 business days; we'll contact you about next steps; questions to 763-292-2259 |
 
-The status page shows the submitted date, the stage's `public_label`, "A person on our team reviews every application", the hiring number for questions, and (Phase 2) the booking link when a one-on-one invite is out.
+Phase 2 templates (Oct 16, 2026, from the `2026-10-16-phase2-templates` change, word for word from `content/legal/messages.md`, which is still a draft for the owner's approval), editable by Admins in Settings > Message templates:
+
+| Purpose | Channel | Body |
+|---|---|---|
+| one_on_one_invite | sms | Kahuna Window Cleaning: Hi {first_name}, we'd like to interview you. Pick a time here: {booking_link} Reply STOP to opt out. |
+| one_on_one_invite | email | Subject: Interview invitation from Kahuna Window Cleaning. Body: we'd like to meet you, pick a time with {booking_link}, about 30 minutes, details in the booking confirmation |
+| one_on_one_reminder | sms | Kahuna Window Cleaning: Hi {first_name}, reminder: your interview is {interview_time}. To change it, call or text 763-292-2259. Reply STOP to opt out. |
+| one_on_one_reminder | email | Subject: Reminder: your interview with Kahuna Window Cleaning. Body: the same reminder with {interview_time} |
+| status_update | sms | Kahuna Window Cleaning: Hi {first_name}, there's an update on your job application. See it here: {link} Reply STOP to opt out. |
+| status_update | email | Subject: An update on your Kahuna Window Cleaning application. Body: the same, with {link} and {help_contact} |
+| decline | sms | Kahuna Window Cleaning: Hi {first_name}, thank you for applying with us. We won't be moving forward this time. We wish you well. Reply STOP to opt out. |
+| decline | email | Subject: Your application with Kahuna Window Cleaning. Body: thank you, not moving forward this time |
+
+The status page shows the submitted date, the stage's `public_label`, "A person on our team reviews every application", the hiring number for questions, and, while a one-on-one invite is out, a "Book your interview" button with the booking link (see Staff sends under `message`).
 
 Any text that is the first to its number since the latest opt-in gets "Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out." in place of its shorter closing (send rule 4).
 

@@ -1,6 +1,6 @@
 # Tidepool: Build plan
 
-Tidepool is Kahuna's hiring system, the third app beside REEF (recurring customers, reef.kahunawindowcleaning.com) and Typhoon (snow removal, typhoon.kahunawindowcleaning.com). It lives at tidepool.kahunawindowcleaning.com; every QR code, link, email and sign-in uses that address. Written Tue Oct 13, 2026, rewritten the same day after your feedback. The data model is in [DATA_MODEL.md](DATA_MODEL.md).
+Tidepool is Kahuna's hiring system, the third app beside REEF (recurring customers, reef.kahunawindowcleaning.com) and Typhoon (snow removal, typhoon.kahunawindowcleaning.com). It lives at tidepool.kahunawindowcleaning.com; every QR code, link, email and sign-in uses that address. Written Tue Oct 13, 2026, rewritten the same day after your feedback. Updated Fri Oct 16, 2026: Phase 2 shipped that day, instead of the Oct 26 to Nov 6 plan (see Phase 2). The data model is in [DATA_MODEL.md](DATA_MODEL.md).
 
 ## What changed from the last draft
 
@@ -50,7 +50,7 @@ Each line ends with where the detail lives in DATA_MODEL.md.
 - Text and email both send at launch. Texting is on from the Oct 15 real-phone test and stays on only if it passes; Settings > Texting turns it off or on afterward. A text goes only to a number with a current opt-in; the suppression list is checked before every send; a global daily cap (default 200) stops runaway sends. (send rules)
 - Consent covers this application only; returning applicants opt in again next season. Staff may answer an applicant's text by hand in Quo; invites, declines and status news go out as templates so they are logged. (consent_event, message)
 - Temporary hires are tagged on the hire form and left out of retention numbers, because their leaving is the plan, not a signal. Set the tag when you hire, not the day someone quits; the record shows when it was set. (hire_stint)
-- AI scoring (Phase 2) shows a 1 to 100 score computed from per-criterion grades, never moves or rejects anyone, and never sees the never-send questions. The first window batch is scored hidden and every decision records whether the score was visible. The AI disclosure is on every landing page from day one, so snow can be scored hidden later if you choose; the default is off. (ai_score, rubric)
+- AI scoring (Phase 2) shows a 1 to 100 score computed from per-criterion grades, never moves or rejects anyone, and never sees the never-send questions. The first window batch is scored hidden and every decision records whether the score was visible. The AI disclosure is on every landing page from day one; at your request snow is scored visibly from Oct 16 with a starter rubric, and window stays off until its rubric is published. (ai_score, rubric)
 - Review screens are phone-first; kanban, configuration and reports are desktop-first.
 - Retention is per record type with a 1-year floor and a legal hold; expiry strips personal details and keeps anonymous data. (retention_policy)
 - No staging environment: local development with a message sink, then production. Pre-launch, production is the test environment; after launch, Phase 2 is built on a branch with a Railway PR environment and merged on its own date.
@@ -96,7 +96,7 @@ Each line ends with where the detail lives in DATA_MODEL.md.
 - Secrets: you paste every key (Quo, Resend, Turnstile, Google, R2) straight into Railway variables. The builder never receives a secret in chat and never prints one.
 - A read-only database user for your own questions, so you can point Claude Code at the data before and after the report screens exist.
 - Tests: Vitest against real Postgres for the protective set (transition function, FCRA gate, send rules, STOP/START/HELP handling, tokens, form versioning and locking, landing matching, CSV escaping, send-once under two cron passes, two concurrent moves of one application, the Central-time helper across Nov 1). Playwright on one phone viewport: landing to submit with a resume in between, and admin sign-in to stage change. CI runs typecheck, lint and tests on every push; the builder runs them before pushing; Railway deploys main on push.
-- Phase 2: Anthropic SDK with structured output (a strict schema the model must follow), model id in config, no tools, re-scoring sequentially through the job table.
+- Phase 2: Anthropic SDK with structured output (a strict schema the model must follow), model id in config (`SCORING_MODEL`, default claude-opus-5-5), no tools, re-scoring sequentially through the job table.
 - Running cost, roughly: Railway (your plan plus usage), Resend's paid plan if the free tier is too tight, the Quo number at $5 a month plus about a cent per segment (a link text with the full disclosure is usually two segments, so about 2 cents), Cloudflare free, R2 under a dollar, and in Phase 2 the Claude API at a few cents per application with a monthly cap you set. Check current prices when you approve.
 
 ## Phase 1: one release (target Fri Oct 23, slip Tue Oct 27, hard backstop Fri Oct 30)
@@ -125,7 +125,7 @@ Nov 1 is a Sunday, so Fri Oct 30 is the last date.
 
 **Platform:** Railway web, cron and Postgres; migrations on pre-deploy; db:seed (one script, run once against an empty database and locally: employer, your Admin user, both roles, both pipelines, picklists, legal text v1, templates v1, snow form v1 published and window form v1 as a draft, both openings (snow open with the pay text you approve Oct 14, window a draft), the two launch entry codes; re-running is a no-op by key); nightly dump with one tested restore; CI; alerts, digest and /health; read-only database user.
 
-Snow runs group interviews this fall, so group sessions are in this release: the session record (date, location, role, invited count), a per-session QR, and the session shown on each applicant and as a list filter. Attendee entry from the sign-up sheet, stars and the door check-in page follow in Phase 2.
+Snow runs group interviews this fall, so group sessions are in this release: the session record (date, location, role, invited count), a per-session QR, and the session shown on each applicant and as a list filter. Attendee entry from the sign-up sheet, stars and the door check-in page followed in Phase 2 (Oct 16).
 
 **Slip rules.** If the Oct 20 dry run fails on something fundamental, go-live moves to Tue Oct 27 with everything. If Oct 27 fails, Fri Oct 30 is the last date, with everything. If even that is at risk, I will ask you at the Oct 27 go/no-go whether kanban (the list makes the same moves), the question editor (snow form v1 is seeded), the wide CSV export or bulk move may trail by a week; nothing trails without your say-so. Nov 1 is the daylight saving change; the Central-time helper and its test cover it, and the builder checks the first reminders sent on Nov 2.
 
@@ -169,17 +169,33 @@ Assumes the builder works every day including both weekends, you answer within h
 10. Export CSV, open it in Google Sheets; a cell starting with = shows as text.
 11. The builder shows you: last night's dump restored into a scratch database with the list view open; a failed-send alert email; the daily digest; an UPDATE on the event log rejected; an anonymous call to a server action refused.
 
-## Phase 2 (Mon Oct 26 to Fri Nov 6)
+## Phase 2 (shipped Fri Oct 16, 2026)
 
-Built on a branch with its own Railway environment while the first live week runs on fixes only.
+Planned for Mon Oct 26 to Fri Nov 6 on a branch with its own Railway environment. It was built instead in five parallel areas (group sessions, interviews and roles, message templates, scoring, the rubric editor) and merged on Oct 16, and it deploys from main like Phase 1. Its tables were already in production from the Phase 2 schema migrations (0007 and 0008), so the deploy adds no migration; its content (the Phase 2 templates and the snow starter rubric) arrives through `pnpm db:changes` in the pre-deploy step.
 
-- Oct 26 to 28: group sessions, continued (attendee entry from the paper sheet or a tablet door check-in page, exact-phone matching, staff-confirmed name matches, stars with a reason picklist and a concern mark); interview record with grades and the ladder-test assessment; template editor with the Phase 2 templates (one-on-one invite with booking link, one-on-one reminder, decline, status update); stage editor and "New role from template" in Settings. From this point you add a role yourself: Settings, New role, edit the questions and stages, open an opening with pay and dates.
-- Oct 29 to Nov 3: rubric editor with "Try it" (optional sample answers scored on demand; publishing needs a written reason, not a passing run); scoring job (1 to 100 computed score, per-criterion 1 to 5 grades, hidden or visible mode, stored input snapshot, re-score); review decisions written automatically; AI disclosure editable as a legal text version.
-- Nov 4 to 6: tests against sample window answers, fixes, live Fri Nov 6.
+What shipped, against the plan:
+- Group sessions, continued: attendee entry from the paper sheet ("Who came") and a tablet door check-in page at /check-in/<session id>, exact-phone matching, staff-confirmed name matches, and a phone floor view with stars and concerns using the star reason picklist. A match fills in the applicant's session and, for a door check-in, their arrival.
+- Interview records: schedule, reschedule, cancel and record a one-on-one or phone screen with A+ to F grades on a six-category scorecard, an overall grade, a recommendation and a Notion link; the ladder-test assessment, voided and re-recorded to fix a mistake.
+- The template editor in Settings > Message templates with the Phase 2 templates (one-on-one invite with the booking link, one-on-one reminder, decline, status update) and the booking link. Staff send them from the profile, the Move dialog (the invite) and the Close dialog (the decline); the one-on-one reminder goes by itself the day before; the applicant's status page shows "Book your interview" while an invite is out.
+- The stage editor and "New role from template" in Settings > Roles and stages, plus a draft opening on the role's page. From this point you add a role yourself: Settings, New role, edit the questions and stages, open an opening with pay and dates.
+- The rubric editor with Try it (sample answers scored on demand; publishing needs a written reason, not a passing run) in Settings > AI scoring.
+- The scoring job: a 1 to 100 computed score from per-criterion 1 to 5 grades, hidden or visible mode, the stored anonymous input snapshot, re-score per application or per role, a daily limit, and the score on the profile, list and board with a sort.
+- Review decisions written automatically inside every staff move, close and hold.
+- The AI disclosure editable as a legal text version in Settings > AI scoring; the landing page shows the newest version, and each application is tied to the one it saw.
+- Seven staff guides at /help (four new, and the "Coming Nov 6" lines folded into the first three).
 
-**Gate:** scoring runs end to end on sample window answers in production with scoring mode off for both roles; the input-snapshot test (no name, phone or email) passes; you have an Anthropic key with a monthly cap (by Thu Oct 29).
+Changed from the plan:
+- Snow is scored now, in visible mode, at your request: the `2026-10-16-snow-starter-rubric` change publishes a starter rubric written from your staff notes (Reliability 30, Integrity 25, Work ethic 30, Problem solving 15) with two groups of Try it samples. Window stays off until your window rubric is published, and its first batch can still be scored hidden.
+- The live scorer calls claude-opus-5-5 by default with effort medium and the API's server-side fallbacks; `SCORING_MODEL` overrides the model.
 
-**Your acceptance:** create a test role from a template without the builder; run a group session from creation to a star on a phone in five minutes; the same sample answer in standard, short and broken-English form scores within a few points; a one-on-one invite goes out as a text from a real stage move.
+Deferred, not in this release:
+- The Phase 2 CSV files: scores, criterion scores, review decisions, attendees, stars, interviews with grades, and assessments (leaving out the restricted note), and the attendee count in the sessions file. Until they land, the read-only database user answers those questions.
+- Attendance and star chips on the list and the board.
+- The Nov 4 to 6 run against sample window answers, which waits for the window rubric.
+
+**Gate:** the input-snapshot test (no name, phone or email) passes; scoring runs end to end with the stand-in scorer in the tests and in the deploy rehearsal (a fresh copy of production's database taken through migrate, seed and db:changes, then one cron pass); nothing calls the model until `ANTHROPIC_API_KEY` is in Railway. Because snow is visible, the key is what makes snow scores appear; without it scoring pauses, jobs wait without losing attempts and an alert email goes out each hour.
+
+**Your acceptance:** create a test role from a template without the builder; run a group session from creation to a star on a phone in five minutes; the same sample answer in standard, short and broken-English form scores within a few points (Try it on the snow starter rubric's samples, once the key is in); a one-on-one invite goes out as a text from a real stage move.
 
 The window rubric, the window question wording and pay, and your approval of the AI disclosure (counsel optional) are owner work and gate the spring window opening, not this release; scoring stays off for window until the rubric is published.
 
@@ -209,7 +225,7 @@ The window rubric, the window question wording and pay, and your approval of the
 - **Thu Oct 15:** create the Quo API key when asked (morning), paste it into Railway, turn on auto-recharge; lend one staff phone for the first text test that evening.
 - **Fri Oct 16:** snow season dates, headcount, whether snow uses one-on-ones, which checks apply and the vendor; recruit 3 to 5 dry-run testers for Tue Oct 20; roughly how the 40 to 50 hires split between snow and window.
 - **Mon Oct 19:** 30-minute production walkthrough. **Tue Oct 20:** dry run. **Wed Oct 21:** acceptance checklist. **Thu Oct 22:** Indeed cleanup and the QR test sheet. **Fri Oct 23:** paste the Indeed link; available all day.
-- **By Thu Oct 29:** Anthropic Console account and key with a monthly cap, pasted into Railway.
+- **Before the Phase 2 deploy:** an Anthropic Console key with a monthly cap, pasted into Railway as `ANTHROPIC_API_KEY` on the cron service (where scoring runs) and on web (for Try it), since the deploy turns snow scoring on; confirm the account can use claude-opus-5-5 and the server-side fallback beta. Then, in the app: the one-on-one booking link in Settings > Message templates; a read of the snow starter rubric and its samples in Settings > AI scoring; approval of the Phase 2 message wording in content/legal/messages.md (still a draft) and of the AI notice; the daily scoring limit (100 unless you change it).
 - **By Fri Nov 6:** enter crews in Settings > Picklists.
 - **Before the window opening opens:** window rubric (criteria, strong, acceptable and weak examples, weights), final window question wording and pay, season dates, approval of the AI disclosure.
 
