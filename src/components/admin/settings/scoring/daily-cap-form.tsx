@@ -36,7 +36,7 @@ export function DailyCapForm({ cap, usedToday, max }: { cap: number; usedToday: 
       <CardHeader>
         <CardTitle>Daily scoring limit</CardTitle>
         <CardDescription>
-          AI scoring calls per day across all roles. Past the limit, scoring waits until midnight Central and Admins get one email that day.
+          AI scoring calls per day across all roles. Past the limit, scoring waits until midnight Central and the owner gets one alert email that day.
         </CardDescription>
       </CardHeader>
       <CardContent>

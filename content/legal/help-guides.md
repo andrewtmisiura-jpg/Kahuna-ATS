@@ -252,13 +252,13 @@ The card says why, and a failed score never shows as a low number:
 ### Who can do what
 
 - Everyone who can open a profile sees the score.
-- Only Admins see "Check the rationale, it mentions:" chips. They appear when the AI's reasons use a word tied to a protected trait (age, family, religion and so on), so a person can check it. Admins also get an email when this happens.
+- Only Admins see "Check the rationale, it mentions:" chips. They appear when the AI's reasons use a word tied to a protected trait (age, family, religion and so on), so a person can check it. The owner also gets an alert email when this happens.
 - Only Admins have **Re-score**. It asks for a fresh score against the current rubric. The button then reads "Re-score queued", and the new score replaces the old one within about five minutes.
 
 ### Privacy and limits
 
 - The AI never sees the applicant's name, phone number or email; they are removed from the answers before anything is sent. Questions marked never to send to the AI are never sent.
-- Each business has a daily scoring limit (100 a day unless an Admin changes it). Past it, scoring waits until midnight Central and Admins get one email that day.
+- Each business has a daily scoring limit (100 a day unless an Admin changes it). Past it, scoring waits until midnight Central and the owner gets one alert email that day.
 
 ### Records kept
 
