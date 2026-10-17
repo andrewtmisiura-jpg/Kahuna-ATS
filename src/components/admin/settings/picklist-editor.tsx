@@ -346,7 +346,7 @@ function EditOptionDialog({ list, option, onClose }: { list: PicklistListInfo; o
           <DialogTitle>Edit option</DialogTitle>
           <DialogDescription>
             {option.referenced
-              ? "This option is already used on applications or hires, so its key and background flag are locked. Relabel it, or archive it and add a new one."
+              ? "This option is already in use, so its key and background flag are locked. Relabel it, or archive it and add a new one."
               : "Nothing uses this option yet, so everything can still change."}
           </DialogDescription>
         </DialogHeader>

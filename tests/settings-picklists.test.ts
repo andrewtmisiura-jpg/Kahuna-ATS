@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
-import { applicationEvent, auditLog, hireStint, picklistOption } from "@/db/schema";
+import { applicationEvent, assessment, auditLog, hireStint, picklistOption, reviewDecision, star } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { staffActor } from "@/server/services/actor";
@@ -26,6 +26,7 @@ import {
   TEST_ADMIN_EMAIL,
   type SnowFixture,
 } from "./helpers/fixtures";
+import { createAttendee, createGroupSession } from "./helpers/phase2";
 
 let snow: SnowFixture;
 let adminId: string;
@@ -139,6 +140,43 @@ describe("Settings > Picklists", () => {
       expect(await isOptionReferenced(tx, crew.id)).toBe(true);
       await expectConfigError(updatePicklistOption(tx, { actor, id: crew.id, patch: { key: "north_crew" } }), "picklist_locked");
       expect((await updatePicklistOption(tx, { actor, id: crew.id, patch: { label: "North crew" } })).label).toBe("North crew");
+    });
+  });
+
+  it("treats a star, a test result and a review decision as references", async () => {
+    await withRollback(db, async (tx) => {
+      const actor = staffActor(adminId);
+      const starReason = await addPicklistOption(tx, { actor, listKey: "star_reason", key: "helped_others", label: "Helped others" });
+      const attendeeId = await createAttendee(tx, await createGroupSession(tx, snow.openingId, adminId));
+      await tx.insert(star).values({ id: uuidv7(), attendeeId, userId: adminId, mark: "star", reasonOptionId: starReason.id });
+
+      const testType = await addPicklistOption(tx, { actor, listKey: "assessment_type", key: "shovel_test", label: "Shovel test", roleId: snow.roleId });
+      const tested = await createApplication(tx, snow, await createPerson(tx));
+      await tx.insert(assessment).values({
+        id: uuidv7(),
+        applicationId: tested.applicationId,
+        assessmentTypeOptionId: testType.id,
+        result: "pass",
+        administeredBy: adminId,
+        administeredOn: "2026-10-16",
+      });
+
+      // A decision row alone locks the reason, though no event names it.
+      const decline = await addPicklistOption(tx, { actor, listKey: "disqualify_reason", key: "no_show_ride_along", label: "No-show to the ride-along" });
+      await tx.insert(reviewDecision).values({
+        id: uuidv7(),
+        applicationId: tested.applicationId,
+        decision: "decline",
+        reasonOptionId: decline.id,
+        aiScoreVisible: false,
+        decidedBy: adminId,
+        decidedAt: new Date(),
+      });
+
+      for (const option of [starReason, testType, decline]) {
+        expect(await isOptionReferenced(tx, option.id), option.key).toBe(true);
+        await expectConfigError(updatePicklistOption(tx, { actor, id: option.id, patch: { key: `${option.key}_v2` } }), "picklist_locked");
+      }
     });
   });
 
