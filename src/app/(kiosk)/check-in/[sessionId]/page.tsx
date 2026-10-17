@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { isUuid } from "@/lib/uuid";
 import { checkInClosedMessage, checkInState } from "@/server/services/sessions/attendees";
 import { getSessionSummary } from "@/server/services/sessions/queries";
-import { kioskAccess, kioskStarterAccess } from "../../_lib/kiosk-access";
+import { kioskAccess, kioskStarterAccess, staffSignedInHere } from "../../_lib/kiosk-access";
 import { CheckInForm } from "./check-in-form";
 
 export const metadata = { title: "Check in" };
@@ -14,12 +14,12 @@ export const metadata = { title: "Check in" };
 // types a name and mobile, which become an attendee row (source door_checkin) matched
 // to an application on an exact mobile. Open on the session's day (Central) while it
 // is scheduled or held; any other day it says so in plain words. Only a tablet holding
-// this session's kiosk credential gets the form; a staff member signed in here instead
-// is asked to start the check-in, which signs them out first.
+// this session's kiosk credential, with nobody signed in on it, gets the form; a staff
+// member signed in here is asked to start the check-in, which signs them out first.
 export default async function CheckInPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
-  const staff = isUuid(sessionId) ? await kioskAccess(sessionId) : null;
-  if (!staff) {
+  const ready = isUuid(sessionId) && (await kioskAccess(sessionId)) !== null && !(await staffSignedInHere());
+  if (!ready) {
     const access = await kioskStarterAccess();
     if (!access.ok) return access.view;
   }
@@ -27,7 +27,7 @@ export default async function CheckInPage({ params }: { params: Promise<{ sessio
   if (!session) {
     return <KioskNotice title="Check-in not found">This check-in page does not exist. Please ask a staff member for help.</KioskNotice>;
   }
-  if (!staff) {
+  if (!ready) {
     return (
       <div className="grid gap-4 py-10">
         <h1 className="text-3xl font-semibold tracking-tight">Set up door check-in</h1>

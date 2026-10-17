@@ -3,6 +3,7 @@ import { pageAccess, type PageAccess } from "@/components/admin/settings/page-ac
 import { env } from "@/config/env";
 import { db } from "@/db";
 import type { UserRole } from "@/server/auth/roles";
+import { getSessionUser } from "@/server/auth/session";
 import type { SessionStaff } from "@/server/services/sessions/errors";
 import { KIOSK_COOKIE, kioskStaff } from "@/server/services/sessions/kiosk";
 
@@ -22,4 +23,12 @@ export async function kioskAccess(sessionId: string): Promise<SessionStaff | nul
 // without a session goes to sign-in, the same checks as the admin pages.
 export function kioskStarterAccess(): Promise<PageAccess> {
   return pageAccess(KIOSK_ROLES);
+}
+
+// Someone is signed in to the staff screens on this device, say after signing back in
+// when check-in was over. The form never shows then, so a tablet is never handed over
+// signed in. The development bypass signs in every request, so it does not count.
+export async function staffSignedInHere(): Promise<boolean> {
+  const user = await getSessionUser();
+  return Boolean(user && !user.isDevBypass);
 }
