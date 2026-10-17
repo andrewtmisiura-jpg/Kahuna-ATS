@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { CENTRAL_TZ } from "@/server/services/time";
-import { APPLICANT_COPY, QUESTIONS_LINE, REVIEWS_LINE, publicStatus } from "./status-copy";
+import { APPLICANT_COPY, BOOK_INTERVIEW, QUESTIONS_LINE, REVIEWS_LINE, publicStatus } from "./status-copy";
 
 // Shared applicant screens with no client state: the expired link, the status page
 // and the "We got it" confirmation.
@@ -36,6 +36,8 @@ export function StatusPage(props: {
   submittedAt: Date | null;
   status: "open" | "hired" | "closed";
   stagePublicLabel: string;
+  // The one-on-one booking link while an invite is out (messaging/staff-sends.ts).
+  bookingLink?: string | null;
 }) {
   const view = publicStatus({ status: props.status, stagePublicLabel: props.stagePublicLabel });
   return (
@@ -47,6 +49,13 @@ export function StatusPage(props: {
         <p className="text-lg font-semibold">{view.label}</p>
         <p className="text-sm">{view.sentence}</p>
       </div>
+      {props.bookingLink && !view.closed ? (
+        <Button asChild className="h-12 w-full text-base">
+          <a href={props.bookingLink} rel="noreferrer">
+            {BOOK_INTERVIEW}
+          </a>
+        </Button>
+      ) : null}
       {view.closed ? null : <p className="text-sm text-muted-foreground">{REVIEWS_LINE}</p>}
       <p className="text-sm text-muted-foreground">{QUESTIONS_LINE}</p>
     </div>

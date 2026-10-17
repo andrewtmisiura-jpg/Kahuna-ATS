@@ -14,23 +14,25 @@ import { withMessages } from "@/server/services/messaging/after-transition";
 import { queueInterviewReminders } from "@/server/services/messaging/interview-reminders";
 import { createSinkProviders } from "@/server/services/messaging/providers";
 import type { MessagePurpose } from "@/server/services/messaging/send";
+import { openInviteBookingLink } from "@/server/services/messaging/staff-sends";
 import { formatCentralMoment, interviewReminderKey } from "@/server/services/messaging/template-text";
 import { TemplateError } from "@/server/services/messaging/templates";
 import { fakeScorer } from "@/server/services/scoring/fake";
 import { enqueueRescore } from "@/server/services/scoring/rescore";
 import { ensureRubricDraft, publishRubricVersion, saveRubricDraft, setScoringMode } from "@/server/services/scoring/rubrics";
 import { withRollback } from "./helpers/db";
-import { loadAdminId, loadEmployer, loadOption, loadSnow, nextMobile, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
+import { loadAdminId, loadEmployer, loadOption, loadSnow, loadStages, nextMobile, TEST_ADMIN_EMAIL, type SnowFixture } from "./helpers/fixtures";
 import { createAiScore } from "./helpers/phase2";
 import { createRubricRole, criterionInput, type RubricRoleFixture } from "./helpers/rubrics";
 import { createScoringRole, submitScoringApplication, type ScoringRoleFixture } from "./helpers/scoring";
-import { ensurePhase2Templates, readyEmployer, submittedApplicant } from "./helpers/templates";
+import { BOOKING_LINK, ensurePhase2Templates, readyEmployer, submittedApplicant } from "./helpers/templates";
 
 // The Phase 2 areas were built apart and meet here: a staff move or close on a scored
 // application writes the screening decision and queues its template message in one
-// transaction, an interview booked on the profile gets its reminder from the cron, and
-// a rubric published in Settings scores the role's applications on the next pass. Every
-// case runs on its own rows inside a rolled-back transaction.
+// transaction, an interview booked on the profile gets its reminder from the cron and
+// takes the booking button off the applicant's status page, and a rubric published in
+// Settings scores the role's applications on the next pass. Every case runs on its own
+// rows inside a rolled-back transaction.
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -250,6 +252,52 @@ describe("an interview booked on the profile", () => {
       await cancelInterview(tx, { interviewId, userId: adminId, role: "admin", now: NOW });
       await queueInterviewReminders(tx, NOW);
       expect(await reminders(tx, a.applicationId)).toEqual([expect.objectContaining({ status: "canceled", errorCode: "interview_canceled" })]);
+    });
+  });
+});
+
+describe("the booking button on the applicant's status page", () => {
+  it("shows while the invite is out, and goes once an interview is booked or the application moves on", async () => {
+    await withRollback(db, async (tx) => {
+      await ensurePhase2Templates(tx, adminId);
+      await readyEmployer(tx, employerId);
+      const stages = await loadStages(tx, snow.roleId);
+      const a = await submittedApplicant(tx, snow, employerId);
+      expect(await openInviteBookingLink(tx, a.applicationId)).toBeNull();
+
+      await act(tx, a.applicationId, { action: "move", toStageId: stages.one_on_one_invited }, { sendInvite: true });
+      expect(await openInviteBookingLink(tx, a.applicationId)).toBe(BOOKING_LINK);
+
+      const { interviewId } = await scheduleInterview(tx, {
+        applicationId: a.applicationId,
+        userId: adminId,
+        role: "admin",
+        kind: "one_on_one",
+        scheduledAt: new Date(Date.now() + 3 * 86_400_000),
+      });
+      expect(await openInviteBookingLink(tx, a.applicationId)).toBeNull();
+      // Canceled, so they pick a new time.
+      await cancelInterview(tx, { interviewId, userId: adminId, role: "admin" });
+      expect(await openInviteBookingLink(tx, a.applicationId)).toBe(BOOKING_LINK);
+
+      await act(tx, a.applicationId, { action: "move", toStageId: stages.one_on_one_done });
+      expect(await openInviteBookingLink(tx, a.applicationId)).toBeNull();
+    });
+  });
+
+  it("stays off when the move went without the invite, or there is no booking link", async () => {
+    await withRollback(db, async (tx) => {
+      await ensurePhase2Templates(tx, adminId);
+      await readyEmployer(tx, employerId);
+      const stages = await loadStages(tx, snow.roleId);
+      const quiet = await submittedApplicant(tx, snow, employerId);
+      await act(tx, quiet.applicationId, { action: "move", toStageId: stages.one_on_one_invited });
+      expect(await openInviteBookingLink(tx, quiet.applicationId)).toBeNull();
+
+      const invited = await submittedApplicant(tx, snow, employerId);
+      await act(tx, invited.applicationId, { action: "move", toStageId: stages.one_on_one_invited }, { sendInvite: true });
+      await readyEmployer(tx, employerId, { bookingLinkUrl: null });
+      expect(await openInviteBookingLink(tx, invited.applicationId)).toBeNull();
     });
   });
 });

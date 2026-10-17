@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, ne } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, employer, person, role } from "@/db/schema";
+import { application, employer, interview, message, person, pipelineStage, role } from "@/db/schema";
 import type { Actor } from "../actor";
 import { writeAudit } from "../audit";
 import { isOptedIn, latestConsent, liveSuppression } from "./consent";
@@ -204,4 +204,45 @@ export async function loadSendOptions(db: Db, applicationId: string, purposes: r
   const options: SendOption[] = [];
   for (const purpose of purposes) options.push({ purpose, ...(await previewTemplateMessage(db, applicationId, purpose)) });
   return options;
+}
+
+// The booking link the applicant's status page shows while a one-on-one invite is out
+// (content/legal/messages.md, Status page): the application is open in a stage at the
+// interview_invited milestone, an invite was queued after it entered that stage, no
+// interview is booked, held or missed yet, and the booking link is set. Null otherwise,
+// so moving on to the next stage or booking the interview takes the button away.
+export async function openInviteBookingLink(db: Db, applicationId: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      status: application.status,
+      deletedAt: application.deletedAt,
+      stageEnteredAt: application.stageEnteredAt,
+      milestone: pipelineStage.milestone,
+      bookingLinkUrl: employer.bookingLinkUrl,
+    })
+    .from(application)
+    .innerJoin(pipelineStage, eq(pipelineStage.id, application.currentStageId))
+    .innerJoin(role, eq(role.id, application.roleId))
+    .innerJoin(employer, eq(employer.id, role.employerId))
+    .where(eq(application.id, applicationId));
+  if (!row || row.deletedAt || row.status !== "open" || row.milestone !== "interview_invited" || !row.bookingLinkUrl) return null;
+  const [invite] = await db
+    .select({ id: message.id })
+    .from(message)
+    .where(
+      and(
+        eq(message.applicationId, applicationId),
+        eq(message.purpose, "one_on_one_invite"),
+        ne(message.status, "canceled"),
+        gte(message.createdAt, row.stageEnteredAt),
+      ),
+    )
+    .limit(1);
+  if (!invite) return null;
+  const [booked] = await db
+    .select({ id: interview.id })
+    .from(interview)
+    .where(and(eq(interview.applicationId, applicationId), inArray(interview.status, ["scheduled", "held", "no_show"]), isNull(interview.deletedAt)))
+    .limit(1);
+  return booked ? null : row.bookingLinkUrl;
 }
