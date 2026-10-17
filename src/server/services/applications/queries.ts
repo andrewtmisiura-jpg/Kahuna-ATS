@@ -32,10 +32,12 @@ import {
 } from "@/db/schema";
 import type { UserRole } from "@/server/auth/roles";
 import { checkStartsWith, type StartsWithResult } from "../forms/starts-with";
+import { messageKeysFor } from "../messaging/after-transition";
 import { countUnhandledInbound, unhandledInboundCountSql } from "../messaging/inbox";
 import { describeReplySpeed, replySpeedForPerson, type ReplySpeed } from "../messaging/reply-speed";
 import { addDays, centralInstant } from "../time";
 import { stageBeforeHire, undoPreview, type UndoPreview } from "./corrections";
+import { latestStateChange } from "./replay";
 import { isOpenCheck } from "./transition";
 
 // Read side of the staff review screens (PLAN.md, "What staff experience"):
@@ -1000,6 +1002,15 @@ async function loadEvents(
     .where(eq(applicationEvent.applicationId, applicationId))
     .orderBy(asc(applicationEvent.seq));
   const voided = new Set(rows.filter((r) => r.event.kind === "event_voided" && r.event.voidsEventId).map((r) => r.event.voidsEventId!));
+  // Undoing the latest change cancels the invite or decline it queued, if that is still waiting.
+  const latest = latestStateChange(rows.map((row) => row.event));
+  const queued = latest
+    ? await db
+        .select({ id: message.id })
+        .from(message)
+        .where(and(eq(message.applicationId, applicationId), inArray(message.dedupeKey, messageKeysFor(latest.id)), eq(message.status, "queued")))
+        .limit(1)
+    : [];
   const undo = undoPreview(
     rows.map((row) => ({
       ...row.event,
@@ -1008,6 +1019,7 @@ async function loadEvents(
       reasonLabel: row.reasonLabel,
       actorName: row.actorName ?? row.actorEmail ?? null,
     })),
+    queued.length > 0,
   );
   const events = rows.map((row) => ({
     id: row.event.id,

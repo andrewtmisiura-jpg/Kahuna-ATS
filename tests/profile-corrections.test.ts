@@ -226,5 +226,13 @@ describe("undo last change", () => {
     expect(one("hold_cleared")!.effects[0]).toBe("The application goes back on hold.");
     expect(one("hire_rescinded", { toStatus: "closed", closedOutcome: "withdrew" })!.summary).toBe("Hire rescinded and closed as Withdrew");
     expect(one("hold_set")!.effects.at(-1)).toBe("The change stays in the stage history, marked voided.");
+
+    // A message the change queued that has not gone yet is canceled with it.
+    const created = { ...base, id: "a", seq: 1, kind: "created" as const };
+    const closed = { ...base, id: "b", seq: 2, kind: "closed" as const, closedOutcome: "disqualified" as const };
+    expect(undoPreview([created, closed], true)!.effects).toContain("The decline message this close queued is canceled before it goes out.");
+    expect(undoPreview([created, closed])!.effects.join(" ")).not.toContain("queued");
+    const moved = { ...base, id: "b", seq: 2, kind: "stage_changed" as const, toStage: "One-on-one invited" };
+    expect(undoPreview([created, moved], true)!.effects).toContain("The one-on-one invite this move queued is canceled before it goes out.");
   });
 });

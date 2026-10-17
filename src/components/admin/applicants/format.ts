@@ -142,6 +142,7 @@ export const CANCELED_REASONS: Record<string, string> = {
   interview_canceled: "interview canceled or application closed",
   interview_done: "interview already recorded",
   interview_started: "interview time passed",
+  change_undone: "the move or close was undone",
 };
 
 export const PURPOSE_LABELS: Record<string, string> = {

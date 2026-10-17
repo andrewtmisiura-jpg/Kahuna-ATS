@@ -5,6 +5,7 @@ import { application, applicationEvent, auditLog, groupSession, message, message
 import { seedPhase1 } from "@/db/seed";
 import { uuidv7 } from "@/lib/uuid";
 import { staffActor } from "@/server/services/actor";
+import { loadProfile } from "@/server/services/applications/queries";
 import { transition, type TransitionInput } from "@/server/services/applications/transition";
 import { withMessages } from "@/server/services/messaging/after-transition";
 import { recordStaffOptOut, suppress } from "@/server/services/messaging/consent";
@@ -316,6 +317,26 @@ describe("the invite a move sends", () => {
     });
   });
 
+  it("is canceled when the move is undone, with the email standing in for its text", async () => {
+    await scenario(async (tx) => {
+      const a = await applicant(tx);
+      const move: TransitionInput = { action: "move", applicationId: a.applicationId, toStageId: stages.one_on_one_invited!, actor: staff };
+      const moved = await transition(tx, withMessages(move, { sendInvite: true }));
+      // Texting goes off and the daily cap is used up, so the text is refused and the
+      // email that stands in for it waits for tomorrow morning.
+      await readyEmployer(tx, employerId, { smsEnabled: false, dailySendCap: 0 });
+      const [text] = await messagesFor(tx, a.applicationId);
+      await processMessages(tx, [text!.id], createSinkProviders(), NOON);
+
+      await transition(tx, { action: "void", applicationId: a.applicationId, actor: staff, eventId: moved.event.id });
+      const rows = await messagesFor(tx, a.applicationId);
+      expect(rows.map((row) => [row.dedupeKey, row.status, row.errorCode]).sort()).toEqual([
+        [`invite:${moved.event.id}`, "suppressed", "sms_disabled"],
+        [`invite:${moved.event.id}:email`, "canceled", "change_undone"],
+      ]);
+    });
+  });
+
   it("sends nothing on a move that does not ask for it, like a board drag", async () => {
     await scenario(async (tx) => {
       const a = await applicant(tx);
@@ -356,6 +377,25 @@ describe("the decline a close sends", () => {
       expect(rows[0]).toMatchObject({ purpose: "decline", channel: "email", dedupeKey: `decline:${result.event.id}`, toAddress: a.email });
       expect(rows[0]!.body).toContain("We won't be moving forward with your application this time.");
       expect(rows[0]!.body).toContain("Snow Removal Technician (on-call)");
+    });
+  });
+
+  it("is canceled when the close is undone, so it never goes out", async () => {
+    await scenario(async (tx) => {
+      const a = await applicant(tx);
+      const reasonOptionId = await loadOption(tx, "disqualify_reason", "availability_conflict");
+      const close: TransitionInput = { action: "close", applicationId: a.applicationId, actor: staff, outcome: "disqualified", reasonOptionId };
+      const closed = await transition(tx, withMessages(close, { sendDecline: true }));
+      // The Undo dialog says so before anything changes.
+      const profile = await loadProfile(tx, a.applicationId, "admin");
+      expect(profile!.undo!.effects).toContain("The decline message this close queued is canceled before it goes out.");
+      await transition(tx, { action: "void", applicationId: a.applicationId, actor: staff, eventId: closed.event.id });
+
+      const rows = await messagesFor(tx, a.applicationId);
+      expect(rows).toEqual([expect.objectContaining({ purpose: "decline", status: "canceled", errorCode: "change_undone" })]);
+      const sink = createSinkProviders();
+      expect((await processMessages(tx, [rows[0]!.id], sink, NOON)).sent).toEqual([]);
+      expect(sink.sent).toHaveLength(0);
     });
   });
 
