@@ -5,11 +5,11 @@ import { HELP_GUIDES } from "@/content/help";
 
 export const metadata = { title: "Help" };
 
-// Three one-page staff guides, readable on a phone. Any signed-in staff member.
+// One-page staff guides, readable on a phone. Any signed-in staff member.
 export default function HelpPage() {
   return (
     <div>
-      <PageHeader title="Help" description="Three short guides. Each fits on a phone screen or a printed page." />
+      <PageHeader title="Help" description="Short guides. Each fits on a phone screen or a printed page." />
       <div className="grid gap-3 md:grid-cols-3">
         {HELP_GUIDES.map((guide, i) => (
           <Link key={guide.slug} href={`/help/${guide.slug}`}>
