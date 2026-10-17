@@ -197,10 +197,11 @@ describe("the preview", () => {
     await scenario(async (tx) => {
       const a = await applicant(tx);
       const options = await loadSendOptions(tx, a.applicationId, STAFF_SEND_PURPOSES);
+      // The decline waits for a close (see Send a message below).
       expect(options!.map((o) => [o.purpose, o.channel])).toEqual([
         ["one_on_one_invite", "sms"],
         ["status_update", "sms"],
-        ["decline", "email"],
+        ["decline", null],
       ]);
       await tx.update(application).set({ deletedAt: new Date() }).where(eq(application.id, a.applicationId));
       expect(await loadSendOptions(tx, a.applicationId, STAFF_SEND_PURPOSES)).toBeNull();
@@ -232,6 +233,43 @@ describe("Send a message", () => {
       const audits = await tx.select().from(auditLog).where(and(eq(auditLog.applicationId, a.applicationId), eq(auditLog.action, "application.message_send")));
       expect(audits).toHaveLength(1);
       expect(audits[0]!.changes).toEqual({ purpose: "status_update", channel: "sms", message_id: first.messageId, via: "profile", application_event_id: null });
+    });
+  });
+
+  it("refuses the decline while the application is open, so it never skips the Close dialog's FCRA gate", async () => {
+    await scenario(async (tx) => {
+      const a = await applicant(tx);
+      await transition(tx, { action: "move", applicationId: a.applicationId, toStageId: stages.conditional_offer!, actor: staff });
+      await transition(tx, { action: "move", applicationId: a.applicationId, toStageId: stages.background_check!, actor: staff, check: { checkType: "criminal" } });
+      const refusal =
+        "The decline goes only to someone closed as Disqualified or Not selected. For someone still open, use Close and tick Send the decline message.";
+
+      const options = await loadSendOptions(tx, a.applicationId, STAFF_SEND_PURPOSES);
+      expect(options!.find((o) => o.purpose === "decline")).toMatchObject({ channel: null, body: null, problem: refusal });
+      const decline = { applicationId: a.applicationId, purpose: "decline" as const, actor: staff, dedupeKey: `staff_send:decline:${uuidv7()}`, now: NOON };
+      await expect(sendTemplateMessage(tx, decline)).rejects.toThrow(refusal);
+      expect(await messagesFor(tx, a.applicationId)).toHaveLength(0);
+
+      // The Close dialog still previews the decline it would send with the close.
+      expect(await previewTemplateMessage(tx, a.applicationId, "decline")).toMatchObject({ channel: "email", problem: null });
+
+      // Closed through the gate, with the statement that the decision does not rely on the report, the decline can go.
+      const reasonOptionId = await loadOption(tx, "disqualify_reason", "availability_conflict");
+      await transition(tx, { action: "close", applicationId: a.applicationId, actor: staff, outcome: "disqualified", reasonOptionId, fcra: { notReportBased: true } });
+      expect(await sendTemplateMessage(tx, decline)).toMatchObject({ channel: "email", created: true });
+      expect(await messagesFor(tx, a.applicationId)).toEqual([expect.objectContaining({ purpose: "decline", status: "queued" })]);
+    });
+  });
+
+  it("refuses the decline to someone who withdrew", async () => {
+    await scenario(async (tx) => {
+      const a = await applicant(tx);
+      const reasonOptionId = await loadOption(tx, "withdraw_reason", "took_another_job");
+      await transition(tx, { action: "close", applicationId: a.applicationId, actor: staff, outcome: "withdrew", reasonOptionId });
+      await expect(
+        sendTemplateMessage(tx, { applicationId: a.applicationId, purpose: "decline", actor: staff, dedupeKey: `staff_send:decline:${uuidv7()}` }),
+      ).rejects.toThrow("The decline goes only to someone closed as Disqualified or Not selected.");
+      expect(await messagesFor(tx, a.applicationId)).toHaveLength(0);
     });
   });
 });

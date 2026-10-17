@@ -162,7 +162,7 @@ Say so in a short follow-up by hand in Quo, or call. Don't resend the same templ
 
 ### Send a message
 
-- On the profile, open **Send a message** and pick the one-on-one invite, a status update or the decline.
+- On the profile, open **Send a message** and pick the one-on-one invite, a status update or the decline. The decline goes only to someone already closed as Disqualified or Not selected; for anyone still open, close them with the Close dialog and tick Send the decline message there.
 - Tidepool picks text or email: a text when they ticked the text box, have not opted out and texting is on, otherwise email. A decline goes by email when they have one, because it reads better in an inbox.
 - You see the exact message with their name before you send. If nothing can be sent, it says why (for example: no opt-in and no email, or marked do not contact).
 - Send puts it in Messages as Queued. It goes out within 5 minutes; texts wait for 9am to 8pm Central.

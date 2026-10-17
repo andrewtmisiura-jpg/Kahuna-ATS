@@ -93,7 +93,20 @@ const MISSING_VALUE: Partial<Record<TemplateVariable, string>> = {
   interview_time: "This message gives an interview time, which only the one-on-one reminder knows.",
 };
 
-async function plan(db: Db, applicationId: string, purpose: StaffSendPurpose): Promise<Plan> {
+// The decline tells someone we won't move forward, so it goes only to an application
+// closed as Disqualified or Not selected. Anyone still open is closed first, in the Close
+// dialog, where the FCRA gate applies (DATA_MODEL.md, Key invariants: while a check is
+// open, no rejection skips the FCRA steps); the decline that dialog sends is queued
+// inside the close, after the application is closed.
+const DECLINE_NEEDS_CLOSE =
+  "The decline goes only to someone closed as Disqualified or Not selected. For someone still open, use Close and tick Send the decline message.";
+
+function declinable(app: typeof application.$inferSelect): boolean {
+  return app.status === "closed" && (app.closedOutcome === "disqualified" || app.closedOutcome === "not_selected");
+}
+
+// beforeClose: the Close dialog's preview, shown before the close that will carry the decline.
+async function plan(db: Db, applicationId: string, purpose: StaffSendPurpose, beforeClose = false): Promise<Plan> {
   const [row] = await db
     .select({ app: application, employerId: role.employerId })
     .from(application)
@@ -116,6 +129,7 @@ async function plan(db: Db, applicationId: string, purpose: StaffSendPurpose): P
     segments: null,
     characters: null,
   };
+  if (purpose === "decline" && !beforeClose && !declinable(app)) return { ...base, problem: DECLINE_NEEDS_CLOSE };
   const choice = chooseChannel(await reachPerson(db, who!, emp!), purpose);
   if (!choice.channel) return { ...base, problem: choice.note };
   const withChannel = { ...base, channel: choice.channel, to: choice.address, note: choice.note };
@@ -142,9 +156,13 @@ async function plan(db: Db, applicationId: string, purpose: StaffSendPurpose): P
   };
 }
 
-export async function previewTemplateMessage(db: Db, applicationId: string, purpose: StaffSendPurpose): Promise<SendPreview> {
-  const p = await plan(db, applicationId, purpose);
+function previewOf(p: Plan): SendPreview {
   return { channel: p.channel, to: p.to, note: p.note, problem: p.problem, subject: p.subject, body: p.body, segments: p.segments, characters: p.characters };
+}
+
+// The Move and Close dialogs' preview, before the move or close that carries the message.
+export async function previewTemplateMessage(db: Db, applicationId: string, purpose: StaffSendPurpose): Promise<SendPreview> {
+  return previewOf(await plan(db, applicationId, purpose, true));
 }
 
 export type SendRequest = {
@@ -202,7 +220,7 @@ export async function loadSendOptions(db: Db, applicationId: string, purposes: r
   const [app] = await db.select({ deletedAt: application.deletedAt }).from(application).where(eq(application.id, applicationId));
   if (!app || app.deletedAt) return null;
   const options: SendOption[] = [];
-  for (const purpose of purposes) options.push({ purpose, ...(await previewTemplateMessage(db, applicationId, purpose)) });
+  for (const purpose of purposes) options.push({ purpose, ...previewOf(await plan(db, applicationId, purpose)) });
   return options;
 }
 
