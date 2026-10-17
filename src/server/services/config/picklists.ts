@@ -24,8 +24,8 @@ export const PICKLISTS: { key: PicklistKey; label: string; description: string }
   { key: "not_selected_reason", label: "Not-selected reasons", description: "Why a fine applicant was not taken on." },
   { key: "crew", label: "Crews", description: "Crews a hire can be assigned to on the hire form." },
   { key: "leave_reason", label: "Leave reasons", description: "Why a hire left, with the usual separation type." },
-  { key: "star_reason", label: "Star reasons", description: "Reasons for a star at a group interview (used from Phase 2)." },
-  { key: "assessment_type", label: "Assessment types", description: "Tests such as the ladder test (used from Phase 2)." },
+  { key: "star_reason", label: "Star reasons", description: "Reasons for a star or a concern on a group interview's floor view." },
+  { key: "assessment_type", label: "Assessment types", description: "Tests such as the ladder test, recorded on the profile." },
 ];
 
 export const PICKLIST_KEYS = PICKLISTS.map((list) => list.key);
