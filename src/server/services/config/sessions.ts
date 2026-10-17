@@ -1,17 +1,18 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { application, entryCode, entryCodeScanDay, groupSession, opening, person, pipelineStage, role, type GroupInterviewArrival } from "@/db/schema";
+import { application, attendee, entryCode, entryCodeScanDay, groupSession, opening, person, pipelineStage, role, type GroupInterviewArrival } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
 import type { Actor } from "@/server/services/actor";
 import { diffChanges, writeAudit } from "@/server/services/audit";
+import { countAttendees } from "@/server/services/sessions/queries";
 import { centralDate, centralParts } from "@/server/services/time";
 import { createEntryCode, listSessionEntryCodes, type EntryCodeListRow } from "./entry-codes-admin";
 import { ConfigError } from "./errors";
 
 // Group interview sessions (DATA_MODEL.md, group_session; PLAN.md, Phase 1 "group
 // sessions"): the session record, a per-session QR (created with the session so it
-// is ready at once) and the applicants attributed to it. Attendees and stars follow
-// in Phase 2.
+// is ready at once) and the applicants attributed to it. Who came, the matching and
+// the stars are in services/sessions (Phase 2).
 
 export type SessionRow = typeof groupSession.$inferSelect;
 export type SessionStatus = SessionRow["status"];
@@ -34,7 +35,13 @@ export type SessionListRow = {
   locationName: string;
   locationAddress: string | null;
   invitedCount: number | null;
+  // The headcount typed in by hand (Phase 1).
   attendedCount: number | null;
+  // Live attendee rows, and how many of them are matched to an application.
+  attendeeCount: number;
+  matchedCount: number;
+  // Who came: the attendee rows once there are any, else the typed headcount.
+  attended: number | null;
   status: SessionStatus;
   notes: string | null;
   createdAt: Date;
@@ -73,10 +80,11 @@ type Enrichment = {
   codes: Map<string, SessionCode>;
   scans: Map<string, { today: number; total: number }>;
   applicants: Map<string, { started: number; submitted: number }>;
+  attendees: Map<string, { attendees: number; matched: number }>;
 };
 
 async function enrich(db: Db, sessionIds: string[], now: Date): Promise<Enrichment> {
-  const result: Enrichment = { codes: new Map(), scans: new Map(), applicants: new Map() };
+  const result: Enrichment = { codes: new Map(), scans: new Map(), applicants: new Map(), attendees: new Map() };
   if (sessionIds.length === 0) return result;
 
   const codeRows = await db
@@ -117,6 +125,7 @@ async function enrich(db: Db, sessionIds: string[], now: Date): Promise<Enrichme
   for (const row of appRows) {
     if (row.sessionId) result.applicants.set(row.sessionId, { started: row.started, submitted: row.submitted });
   }
+  result.attendees = await countAttendees(db, sessionIds);
   return result;
 }
 
@@ -125,6 +134,7 @@ type JoinedRow = { session: SessionRow; openingName: string; roleId: string; rol
 function toListRow(r: JoinedRow, e: Enrichment): SessionListRow {
   const scans = e.scans.get(r.session.id) ?? { today: 0, total: 0 };
   const apps = e.applicants.get(r.session.id) ?? { started: 0, submitted: 0 };
+  const came = e.attendees.get(r.session.id) ?? { attendees: 0, matched: 0 };
   return {
     id: r.session.id,
     openingId: r.session.openingId,
@@ -136,6 +146,9 @@ function toListRow(r: JoinedRow, e: Enrichment): SessionListRow {
     locationAddress: r.session.locationAddress,
     invitedCount: r.session.invitedCount,
     attendedCount: r.session.attendedCount,
+    attendeeCount: came.attendees,
+    matchedCount: came.matched,
+    attended: came.attendees > 0 ? came.attendees : r.session.attendedCount,
     status: r.session.status,
     notes: r.session.notes,
     createdAt: r.session.createdAt,
@@ -307,8 +320,8 @@ const AUDITED = [
   "notes",
 ] as const;
 
-// The opening can change only while no application is attributed to the session,
-// because an attributed application must belong to the session's opening.
+// The opening can change only while no application is attributed to the session and
+// no attendee is matched to one, because both must belong to the session's opening.
 export async function updateSession(db: Db, input: { actor: Actor; id: string; patch: SessionPatch }): Promise<SessionRow> {
   return db.transaction(async (tx) => {
     const [before] = await tx
@@ -343,6 +356,14 @@ export async function updateSession(db: Db, input: { actor: Actor; id: string; p
         .limit(1);
       if (attributed) {
         throw new ConfigError("session_has_applicants", "Applicants are already attributed to this session, so its opening cannot change.");
+      }
+      const [matched] = await tx
+        .select({ id: attendee.id })
+        .from(attendee)
+        .where(and(eq(attendee.groupSessionId, before.id), sql`${attendee.applicationId} is not null`))
+        .limit(1);
+      if (matched) {
+        throw new ConfigError("session_has_applicants", "People on this session's list are matched to applications, so its opening cannot change.");
       }
       const o = await loadOpenOrDraftOpening(tx, fields.openingId);
       await tx.update(entryCode).set({ roleId: o.roleId, openingId: o.id }).where(eq(entryCode.groupSessionId, before.id));

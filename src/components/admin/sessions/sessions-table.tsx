@@ -65,7 +65,12 @@ export function SessionsTable({ rows }: { rows: SessionListRow[] }) {
             </TableCell>
             <TableCell className="hidden md:table-cell">{row.openingName}</TableCell>
             <TableCell className="text-right tabular-nums">{row.invitedCount ?? ""}</TableCell>
-            <TableCell className="hidden text-right tabular-nums sm:table-cell">{row.attendedCount ?? ""}</TableCell>
+            <TableCell
+              className="hidden text-right tabular-nums sm:table-cell"
+              title={row.attendeeCount > 0 ? "People on the session's list" : "Headcount typed in by hand"}
+            >
+              {row.attended ?? ""}
+            </TableCell>
             <TableCell className="hidden text-right tabular-nums lg:table-cell" title="Scans today / in total">
               {row.scansToday} / {row.scansTotal}
             </TableCell>
