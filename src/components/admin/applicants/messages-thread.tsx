@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { markInboundTextHandled } from "@/server/actions/admin/applications";
 import type { ProfileMessage } from "@/server/services/applications/queries";
 import { ActionNotice } from "./fields";
-import { formatDateTime, MESSAGE_STATUS_LABELS, PURPOSE_LABELS, SUPPRESSED_REASONS } from "./format";
+import { CANCELED_REASONS, formatDateTime, MESSAGE_STATUS_LABELS, PURPOSE_LABELS, SUPPRESSED_REASONS } from "./format";
 import { Empty, Section } from "./section";
 import { useAdminAction } from "./use-admin-action";
 
@@ -35,6 +35,7 @@ export function MessagesThread({ messages, unhandled, canAct }: { messages: Prof
                 <Badge variant={bad ? "destructive" : "outline"}>
                   {MESSAGE_STATUS_LABELS[m.status] ?? m.status}
                   {m.status === "suppressed" && m.errorCode ? `: ${SUPPRESSED_REASONS[m.errorCode] ?? m.errorCode}` : ""}
+                  {m.status === "canceled" && m.errorCode ? `: ${CANCELED_REASONS[m.errorCode] ?? m.errorCode}` : ""}
                 </Badge>
                 {m.status === "queued" && m.sendAfter ? <span>will send at {formatDateTime(m.sendAfter)}</span> : null}
                 {m.deliveredAt ? <span>delivered {formatDateTime(m.deliveredAt)}</span> : null}

@@ -51,7 +51,7 @@ describe("one cron pass", () => {
     expect(beat!.getTime()).toBeGreaterThanOrEqual(report.startedAt.getTime());
     expect(describePass(report)).toMatch(/send sent=\d+ failed=\d+/);
     expect(describePass(report)).toContain("backup r2_not_configured");
-    expect(describePass(report)).toMatch(/interview reminders queued=\d+/);
+    expect(describePass(report)).toMatch(/interview reminders queued=\d+ canceled=\d+ skipped=\d+/);
     expect(describePass(report)).toMatch(/jobs claimed=\d+ succeeded=\d+ retried=\d+ dead=\d+ deferred=\d+/);
   });
 

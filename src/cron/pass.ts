@@ -114,7 +114,10 @@ export function describePass(report: PassReport): string {
   const parts: string[] = [];
   if (report.reap.ok) parts.push(`reap unknown=${report.reap.value.unknown} requeued=${report.reap.value.requeued}`);
   if (report.reminders.ok) parts.push(`reminders queued=${report.reminders.value.queued.length} skipped=${report.reminders.value.skipped.length}`);
-  if (report.interviewReminders.ok) parts.push(`interview reminders queued=${report.interviewReminders.value.queued}`);
+  if (report.interviewReminders.ok) {
+    const r = report.interviewReminders.value;
+    parts.push(`interview reminders queued=${r.queued} canceled=${r.canceled} skipped=${r.skipped}`);
+  }
   if (report.send.ok) {
     const s = report.send.value;
     parts.push(`send sent=${s.sent.length} failed=${s.failed.length} deferred=${s.deferred.length} suppressed=${s.suppressed.length}`);

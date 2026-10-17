@@ -136,6 +136,14 @@ export const SUPPRESSED_REASONS: Record<string, string> = {
   no_opt_in: "no opt-in for this number",
 };
 
+// Why the cron canceled a queued one-on-one reminder (messaging/interview-reminders.ts).
+export const CANCELED_REASONS: Record<string, string> = {
+  interview_rescheduled: "interview moved",
+  interview_canceled: "interview canceled or application closed",
+  interview_done: "interview already recorded",
+  interview_started: "interview time passed",
+};
+
 export const PURPOSE_LABELS: Record<string, string> = {
   resume_link: "Application link",
   link_recovery: "Application link again",
