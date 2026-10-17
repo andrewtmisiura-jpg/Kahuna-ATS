@@ -9,6 +9,7 @@ import { createSinkProviders } from "@/server/services/messaging/providers";
 import { FAKE_MODEL_ID, FAKE_PROMPT_VERSION, fakeScorer } from "@/server/services/scoring/fake";
 import { scoreApplication } from "@/server/services/scoring/score-application";
 import { NeverSendLineageError } from "@/server/services/scoring/snapshot";
+import { hourBucket } from "@/server/services/time";
 import type { Scorer, ScoringInput } from "@/server/services/scoring/types";
 import { withRollback } from "./helpers/db";
 import { loadAdminId, TEST_ADMIN_EMAIL } from "./helpers/fixtures";
@@ -209,7 +210,7 @@ describe("scoreApplication", () => {
     });
   });
 
-  it("writes no event, no message and no stage or status change, and alerts once per score whose rationale names a protected trait", async () => {
+  it("writes no event, no message and no stage or status change, and alerts once an hour when a rationale names a protected trait", async () => {
     await withRollback(db, async (tx) => {
       const role = await createScoringRole(tx, { adminId });
       const { applicationId } = await submitScoringApplication(tx, role, { commitment: "Called ahead.", mistake: "Told them." });
@@ -222,7 +223,7 @@ describe("scoreApplication", () => {
       const [{ count: messagesAfter }] = await tx.select({ count: raw<number>`count(*)::int` }).from(message);
       expect(messagesAfter).toBe(messagesBefore);
 
-      // A rationale that names a protected trait: kept, chipped and alerted, once per score.
+      // A rationale that names a protected trait: kept, chipped and alerted, at most once an hour.
       const mentions: Scorer = {
         async score(r, input) {
           const result = await fakeScorer.score(r, input);
@@ -231,18 +232,22 @@ describe("scoreApplication", () => {
         },
       };
       const sink = createSinkProviders();
-      const input = { applicationId, rubricVersionId: role.published.rubricVersionId, requestedBy: SYSTEM_ACTOR, scorer: mentions, providers: sink };
+      const now = new Date();
+      const input = { applicationId, rubricVersionId: role.published.rubricVersionId, requestedBy: SYSTEM_ACTOR, scorer: mentions, providers: sink, now };
       const first = await scoreApplication(tx, input);
       expect(first).toMatchObject({ kind: "scored", keywordHits: ["young", "kids", "family"] });
       const [, flagged] = await scores(tx, applicationId);
       expect(flagged).toMatchObject({ status: "succeeded", keywordHits: ["young", "kids", "family"] });
+      const nextHour = new Date(now.getTime() + 60 * 60_000);
       await scoreApplication(tx, input);
+      await scoreApplication(tx, { ...input, now: nextHour });
       const alerts = sink.sent.filter((s) => s.channel === "email" && s.message.subject.includes("protected trait"));
       expect(alerts).toHaveLength(2);
       expect(alerts[0]!.message.body).toContain(flagged!.id);
       expect(alerts[0]!.message.body).toContain("young, kids, family");
+      // The second score in the same hour sends nothing more; the next hour's does.
       const keys = await tx.select({ key: message.dedupeKey }).from(message).where(and(raw`${message.dedupeKey} like 'alert:keyword_hits:%'`, raw`${message.body} like ${`%${applicationId}%`}`));
-      expect(keys).toHaveLength(2);
+      expect(keys.map((row) => row.key).sort()).toEqual([`alert:keyword_hits:${hourBucket(now)}`, `alert:keyword_hits:${hourBucket(nextHour)}`]);
     });
   });
 });

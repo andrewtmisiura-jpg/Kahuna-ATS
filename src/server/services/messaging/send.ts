@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { application, employer, groupSession, message, messageTemplate, person, role } from "@/db/schema";
 import { uuidv7 } from "@/lib/uuid";
@@ -645,11 +645,14 @@ async function enforceLinkRateLimit(db: Db, toAddress: string, now: Date) {
   }
 }
 
+// Messages to applicants sent since midnight Central. Alerts and the digest to staff carry
+// no purpose and are left out, as they are exempt from the cap, so they never hold back
+// an applicant's link or reminder.
 async function sentTodayCount(db: Db, now: Date): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(message)
-    .where(and(eq(message.direction, "outbound"), gte(message.sentAt, centralInstant(centralDate(now), 0))));
+    .where(and(eq(message.direction, "outbound"), isNotNull(message.purpose), gte(message.sentAt, centralInstant(centralDate(now), 0))));
   return row?.count ?? 0;
 }
 

@@ -262,13 +262,15 @@ function describeError(error: unknown): string {
   return text.slice(0, ERROR_MAX_LENGTH);
 }
 
+// One kind for every job, so jobs dying together send one email an hour, not one each.
 async function alertDead(db: Db, row: JobRow, error: string, providers: Providers, now: Date) {
   await notifyAdmin(
     db,
-    `job_dead:${row.id}`,
+    "job_dead",
     `A ${row.kind} job gave up after ${row.attempts} tries`,
     `Job ${row.id} (${row.kind}, payload ${JSON.stringify(row.payload)}) stopped retrying. Last error: ${error}\n` +
-      "Nothing more happens to it on its own; once the cause is fixed, an Admin can re-score from the profile or from Settings, AI scoring.",
+      "Nothing more happens to it on its own; once the cause is fixed, an Admin can re-score from the profile or from Settings, AI scoring. " +
+      "Any more that give up this hour send no email of their own.",
     { providers, now },
   );
 }

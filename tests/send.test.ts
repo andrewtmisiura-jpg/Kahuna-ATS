@@ -333,6 +333,24 @@ describe("quiet hours and the cron pass", () => {
   });
 });
 
+describe("alerts to staff and the daily cap", () => {
+  it("leaves alerts out of the count, so they never hold back an applicant's message", async () => {
+    // A Tuesday at 11:00 CST after every other test's sends, which the count would include.
+    const day = new Date("2027-01-12T17:00:00Z");
+    for (const kind of ["test_cap_a", "test_cap_b", "test_cap_c"]) await notifyAdmin(db, kind, "Test alert", "Nothing to do.", { providers: sink, now: day });
+    expect(sink.sent.filter((s) => s.channel === "email")).toHaveLength(3);
+    await db.update(employer).set({ dailySendCap: 1 }).where(eq(employer.id, employerId));
+    try {
+      const a = await applicant({ at: day });
+      const { messageId } = await queue(a, { now: day });
+      const summary = await processMessages(db, [messageId], sink, day);
+      expect(summary).toMatchObject({ sent: [messageId], capReached: false });
+    } finally {
+      await db.update(employer).set({ dailySendCap: 200 }).where(eq(employer.id, employerId));
+    }
+  });
+});
+
 describe("provider failures", () => {
   it("retries a transient failure and gives up after three attempts", async () => {
     const a = await applicant();

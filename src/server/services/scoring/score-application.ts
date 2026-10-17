@@ -152,11 +152,13 @@ export async function scoreApplication(db: Db, input: ScoreApplicationInput): Pr
   });
 
   if (keywordHits.length > 0) {
+    // One kind for every score, so a run of them sends one email an hour, not one each.
     await notifyAdmin(
       db,
-      `keyword_hits:${aiScoreId}`,
+      "keyword_hits",
       "An AI score's rationale names a protected trait",
-      `Score ${aiScoreId} on application ${app.id} mentions: ${keywordHits.join(", ")}. Read the rationale on the profile; the score is kept as it is.`,
+      `Score ${aiScoreId} on application ${app.id} mentions: ${keywordHits.join(", ")}. Read the rationale on the profile; the score is kept as it is.\n` +
+        "Any more this hour send no email of their own; Admins see the same chip on each profile.",
       { providers: input.providers, now },
     );
   }

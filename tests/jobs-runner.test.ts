@@ -250,16 +250,18 @@ describe("claiming and running", () => {
       const role = await createScoringRole(tx, { adminId });
       const stuck = await submitted(tx, role);
       const spent = await submitted(tx, role);
+      const alsoSpent = await submitted(tx, role);
       // Scoring off, so the reaped job is not run again in the same pass.
       await tx.update(rubric).set({ scoringMode: "off" }).where(eq(rubric.id, role.rubricId));
       const now = new Date();
       const lockedAt = new Date(now.getTime() - STUCK_AFTER_MS - 1_000);
       await tx.update(job).set({ status: "running", attempts: 2, lockedAt, lockedBy: "gone:1" }).where(raw`${job.payload}->>'application_id' = ${stuck}`);
-      await tx.update(job).set({ status: "running", attempts: 5, lockedAt, lockedBy: "gone:2" }).where(raw`${job.payload}->>'application_id' = ${spent}`);
+      await tx.update(job).set({ status: "running", attempts: 5, lockedAt, lockedBy: "gone:2" }).where(inArray(raw`${job.payload}->>'application_id'`, [spent, alsoSpent]));
       const sink = createSinkProviders();
-      expect(await runDueJobs(tx, options({ now, providers: sink }))).toMatchObject({ claimed: 0, retried: 1, dead: 1 });
+      expect(await runDueJobs(tx, options({ now, providers: sink }))).toMatchObject({ claimed: 0, retried: 1, dead: 2 });
       expect((await jobsFor(tx, stuck))[0]).toMatchObject({ status: "retry", attempts: 2, lockedAt: null, lockedBy: null, lastError: expect.stringContaining("15 minutes") });
       expect((await jobsFor(tx, spent))[0]).toMatchObject({ status: "dead", attempts: 5, lockedAt: null });
+      // Two jobs dying in the same hour send one email, not one each.
       expect(sink.sent.filter((s) => s.channel === "email" && s.message.subject.includes("gave up"))).toHaveLength(1);
       // One that has run for less than 15 minutes is left alone.
       await tx.update(job).set({ status: "running", lockedAt: new Date(now.getTime() - minutes(5)) }).where(raw`${job.payload}->>'application_id' = ${stuck}`);
