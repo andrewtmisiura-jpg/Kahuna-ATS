@@ -1,12 +1,15 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { z } from "zod";
+import { env, isProduction } from "@/config/env";
 import { db } from "@/db";
 import { STAR_MARKS } from "@/db/schema";
 import { requireRole } from "@/server/auth/require-role";
 import type { SessionUser } from "@/server/auth/session";
 import { addAttendee, removeAttendee, STAFF_SOURCES, updateAttendee } from "@/server/services/sessions/attendees";
 import { SESSION_STAFF_ROLES, SessionError, type SessionStaff } from "@/server/services/sessions/errors";
+import { KIOSK_COOKIE, kioskPath, mintKioskToken, startKiosk } from "@/server/services/sessions/kiosk";
 import { confirmMatch, dismissSuggestion, matchSessionByPhone, unmatchAttendee } from "@/server/services/sessions/matching";
 import { addMark, removeMark } from "@/server/services/sessions/stars";
 import { toActionFailure, type ActionResult } from "./application-errors";
@@ -71,6 +74,27 @@ const sessionSchema = z.object({ sessionId: uuid });
 // The Match now button: every unmatched row with an exact mobile match.
 export async function matchNowAction(raw: z.input<typeof sessionSchema>): Promise<ActionResult<{ linked: number }>> {
   return run(async () => matchSessionByPhone(db, sessionSchema.parse(raw).sessionId));
+}
+
+// "Door check-in": this device's credential for the session's check-in, in a cookie sent
+// only to its /check-in page. StartCheckInButton then signs the staff member out on the
+// device and opens the kiosk in this page's place.
+export async function startCheckInAction(raw: z.input<typeof sessionSchema>): Promise<ActionResult<{ url: string }>> {
+  return run(async (staff) => {
+    const secret = env().BETTER_AUTH_SECRET;
+    if (!secret) throw new Error("BETTER_AUTH_SECRET is not set, so the door check-in cannot start");
+    const grant = await startKiosk(db, { sessionId: sessionSchema.parse(raw).sessionId, staff });
+    const path = kioskPath(grant.sessionId);
+    (await cookies()).set(KIOSK_COOKIE, mintKioskToken(grant, secret), {
+      httpOnly: true,
+      // Local development runs over http; everywhere else the cookie is Secure.
+      secure: isProduction(),
+      sameSite: "strict",
+      path,
+      expires: grant.expiresAt,
+    });
+    return { url: path };
+  });
 }
 
 const pairSchema = z.object({ attendeeId: uuid, applicationId: uuid });

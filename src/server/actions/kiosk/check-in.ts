@@ -6,9 +6,10 @@ import { db } from "@/db";
 import { checkIn } from "@/server/services/sessions/attendees";
 import { loggableError, SessionError } from "@/server/services/sessions/errors";
 
-// The door check-in (Phase 2, sessions). The tablet is signed in by a staff member,
-// so the same access check as the kiosk pages comes first. The person at the door
-// sees only their own result, in plain words, and never another attendee.
+// The door check-in (Phase 2, sessions). The tablet holds the kiosk credential a staff
+// member started for this session, so the same check as the kiosk page comes first.
+// The person at the door sees only their own result, in plain words, and never another
+// attendee.
 
 export type CheckInActionResult = { ok: true; firstName: string } | { ok: false; field: "name" | "mobile" | null; message: string };
 
@@ -17,12 +18,12 @@ const ASK_STAFF = "Something went wrong. Please ask a staff member to check you 
 const checkInSchema = z.object({ sessionId: z.uuid(), name: z.string().max(500), mobile: z.string().max(40) });
 
 export async function checkInAction(raw: z.input<typeof checkInSchema>): Promise<CheckInActionResult> {
-  const access = await kioskAccess();
-  if (!access.ok) return { ok: false, field: null, message: "This tablet is not signed in for check-in. Please ask a staff member." };
   const parsed = checkInSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, field: null, message: ASK_STAFF };
+  const staff = await kioskAccess(parsed.data.sessionId);
+  if (!staff) return { ok: false, field: null, message: "This tablet is not set up for check-in. Please ask a staff member." };
   try {
-    const result = await checkIn(db, { ...parsed.data, staff: { userId: access.user.id, role: access.user.role } });
+    const result = await checkIn(db, { ...parsed.data, staff });
     return { ok: true, firstName: result.firstName };
   } catch (error) {
     if (error instanceof SessionError) {

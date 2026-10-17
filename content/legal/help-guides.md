@@ -32,7 +32,7 @@ Tidepool does four things for a group interview: it makes the QR code for the ro
 3. **Test it before you print.** Scan the code on an iPhone and on an Android. Start a test application, then open it in Tidepool and check that the session name shows on the profile. An Admin deletes test applications with the "Delete test application" button.
 4. **Print it big.** One sheet of letter paper per table or one slide. Print the short link under the code for people whose camera won't scan.
 5. **Bring the paper sign-up sheet** as always. We keep it for a year.
-6. **Door check-in (optional).** On a tablet, sign in with an Admin or Hiring Manager Google account, open the session and tap **Door check-in**. Hand the tablet to people as they arrive: they type their name and mobile and see a thank-you that clears after 5 seconds. It works only on the day of the session, never shows anyone else's name, and does not sign anyone up for texts.
+6. **Door check-in (optional).** On the day of the session, on a tablet, sign in with an Admin or Hiring Manager Google account, open the session, tap **Door check-in** and then **Start check-in**. Tidepool signs you out on the tablet first, so it can only check people in to this session until midnight, and nobody can go back to the list or reach applicants from it. Close any other browser tabs on the tablet first, and turn on Guided Access (iPad) or screen pinning (Android) if you have it. Hand the tablet to people as they arrive: they type their name and mobile and see a thank-you that clears after 5 seconds. It never shows anyone else's name and does not sign anyone up for texts. Sign in again on the tablet when check-in is over.
 
 ### In the room
 

@@ -2,8 +2,9 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Optimistic redirect only: a request to a staff page (the admin pages, the guides and
-// the door check-in kiosk) without a session cookie is sent to sign-in. Real access
-// control is requireRole in every action and handler.
+// the door check-in kiosk) without a session cookie is sent to sign-in, except a kiosk
+// page on a tablet holding the kiosk's own cookie (sessions/kiosk.ts, KIOSK_COOKIE).
+// Real access control is requireRole, or the kiosk check, in every action and handler.
 //
 // Applicant pages get their response headers here: never indexed, never a
 // referrer, and a per-route Content-Security-Policy with a fresh nonce. Only the
@@ -17,6 +18,7 @@ export function proxy(request: NextRequest) {
 
   const devBypass = process.env.NODE_ENV !== "production" && Boolean(process.env.DEV_AUTH_EMAIL);
   if (devBypass || getSessionCookie(request)) return NextResponse.next();
+  if (pathname.startsWith("/check-in/") && request.cookies.has("kahuna_check_in")) return NextResponse.next();
 
   const signIn = new URL("/admin/sign-in", request.url);
   signIn.searchParams.set("next", pathname);

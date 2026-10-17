@@ -47,6 +47,9 @@ test.describe("Phase 2 screens", () => {
   test("the door check-in carries the Kahuna name and no admin navigation", async ({ page }) => {
     await page.goto(`/check-in/${sessionId}`);
     await expect(page.getByText("Kahuna Window Cleaning", { exact: true })).toBeVisible();
+    // A staff session alone opens no check-in: the tablet must be started, which signs it out.
+    await expect(page.getByRole("heading", { name: "Set up door check-in" })).toBeVisible();
+    await expect(page.getByLabel("Your name")).toHaveCount(0);
     await expect(page).toHaveTitle(/Kahuna Window Cleaning/);
     for (const name of ["List", "Board", "Sessions", "Settings"]) {
       await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);

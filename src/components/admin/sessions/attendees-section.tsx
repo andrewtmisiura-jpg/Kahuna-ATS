@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Star, Tablet, UserPlus } from "lucide-react";
+import { RefreshCw, Star, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { ActionNotice, Field } from "@/components/admin/applicants/fields";
@@ -23,6 +23,7 @@ import type { MatchSuggestion } from "@/server/services/sessions/matching";
 import type { LinkChoice, SessionAttendee } from "@/server/services/sessions/queries";
 import { formatTime, matchedHow, SOURCE_LABELS, SUGGESTION_LABELS, TAP } from "./format";
 import { MarkCounts, MarksList } from "./marks";
+import { StartCheckInButton } from "./start-check-in-button";
 
 // Who came to a group interview, on the session page: type in the sign-up sheet one
 // row after another on a phone, fix or remove a row, and match rows to applications.
@@ -62,12 +63,7 @@ export function AttendeesSection({
               Floor view
             </Link>
           </Button>
-          <Button asChild variant="outline" className={TAP}>
-            <Link href={`/check-in/${sessionId}`}>
-              <Tablet />
-              Door check-in
-            </Link>
-          </Button>
+          <StartCheckInButton sessionId={sessionId} />
           <Button
             variant="outline"
             className={TAP}

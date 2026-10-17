@@ -10,8 +10,9 @@ import { createApplication, transition } from "../src/server/services/applicatio
 // A group session on a phone, signed in through the development bypass: create the
 // session, type in a name from the sign-up sheet whose mobile matches an applicant,
 // star them on the floor view with a reason and see the star on their profile. Then
-// the door check-in kiosk: a person types a name and the mobile of an applicant on
-// file, and the check-in is matched to that application by phone.
+// the door check-in kiosk, started from the session page in that page's place: a
+// person types a name and the mobile of an applicant on file, and the check-in is
+// matched to that application by phone.
 
 test.describe("group sessions", () => {
   test.skip(!process.env.DEV_AUTH_EMAIL || !process.env.DATABASE_URL, "needs DEV_AUTH_EMAIL and DATABASE_URL");
@@ -139,8 +140,11 @@ test.describe("group sessions", () => {
   test("a door check-in matches an applicant on file by phone", async ({ page }) => {
     // The session starts now, so the check-in below is on time however long the first test took.
     await sql`update group_session set starts_at = now() where id = ${doorSessionId}`;
-    await page.goto(`/check-in/${doorSessionId}`);
+    await page.goto(`/admin/sessions/${doorSessionId}`);
+    await page.getByRole("button", { name: "Door check-in" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Start check-in" }).click();
     await expect(page.getByText("Enter your name and mobile number to check in.")).toBeVisible({ timeout: 30_000 });
+    expect(new URL(page.url()).pathname).toBe(`/check-in/${doorSessionId}`);
     await expect(page.getByText("We use your number only to match you with your application.")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Tidepool");
 
@@ -164,6 +168,10 @@ test.describe("group sessions", () => {
     await expect(page.getByLabel("Your name")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByLabel("Your name")).toHaveValue("");
     await expect(page.getByLabel("Mobile number")).toHaveValue("");
+
+    // The kiosk took the session page's place, so Back never shows who came.
+    await page.goBack();
+    expect(page.url()).not.toContain("/admin/sessions/");
 
     // The profile shows the check-in, and the arrival it recorded.
     await page.goto(`/admin/applicants/${people.door.applicationId}`);
