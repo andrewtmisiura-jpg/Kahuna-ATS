@@ -32,6 +32,8 @@ export default defineConfig({
       // when .env holds one (a blank value counts as unset).
       SCORING_PROVIDER: "fake",
       ANTHROPIC_API_KEY: "",
+      // Signs the door check-in kiosk's tokens; a fixed test value, whatever .env holds.
+      BETTER_AUTH_SECRET: "test-only-secret-never-used-outside-vitest",
     },
   },
 });
