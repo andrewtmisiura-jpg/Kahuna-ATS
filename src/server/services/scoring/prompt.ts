@@ -83,7 +83,7 @@ export function scoringOutputSchema(rubric: RubricForScoring): Record<string, un
       },
       overall_rationale: { type: "string" },
       // An empty enum is not valid JSON Schema, so a rubric without flags takes any
-      // string here and parseScorerReply refuses every one.
+      // string here and parseScorerReply drops whatever comes back.
       flags: { type: "array", items: flagKeys.length > 0 ? { type: "string", enum: flagKeys } : { type: "string" } },
     },
     required: ["criteria", "overall_rationale", "flags"],
@@ -97,7 +97,8 @@ export type ParsedReply = { ok: true; reply: ScorerReply; raw: unknown } | { ok:
 
 // The model's reply checked against the rubric: valid JSON, every criterion exactly once
 // with a whole-number grade from 1 to 5, and only flags from the rubric's list. Anything
-// else is invalid output, stored as not scored.
+// else is invalid output, stored as not scored. For a rubric without flags, a stray one
+// (the schema cannot forbid it) is dropped, not held against the score.
 export function parseScorerReply(rubric: RubricForScoring, text: string): ParsedReply {
   let raw: unknown;
   try {
@@ -127,12 +128,13 @@ export function parseScorerReply(rubric: RubricForScoring, text: string): Parsed
   if (ungraded.length > 0) return invalid(`The reply did not grade ${ungraded.map((criterion) => criterion.key).join(", ")}`);
 
   const allowed = new Set(rubric.allowedFlags.map((flag) => flag.key));
-  if (raw.flags.some((flag) => typeof flag !== "string" || !allowed.has(flag))) return invalid("The reply raised a flag that is not on the rubric's list");
+  const flags = allowed.size === 0 ? [] : raw.flags;
+  if (flags.some((flag) => typeof flag !== "string" || !allowed.has(flag))) return invalid("The reply raised a flag that is not on the rubric's list");
 
   // In the rubric's order, whatever order the model wrote them in.
   const order = rubric.criteria.map((criterion) => criterion.key);
   criteria.sort((a, b) => order.indexOf(a.criterionKey) - order.indexOf(b.criterionKey));
-  return { ok: true, reply: { criteria, overallRationale: raw.overall_rationale.trim(), flags: [...new Set(raw.flags as string[])] }, raw };
+  return { ok: true, reply: { criteria, overallRationale: raw.overall_rationale.trim(), flags: [...new Set(flags as string[])] }, raw };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

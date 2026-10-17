@@ -148,7 +148,13 @@ describe("parseScorerReply", () => {
       ok: false,
       error: "The reply raised a flag that is not on the rubric's list",
     });
-    expect(parseScorerReply({ ...RUBRIC, allowedFlags: [] }, reply({ flags: ["no_example"] }))).toMatchObject({ ok: false });
+  });
+
+  it("drops a stray flag for a rubric without flags instead of throwing the score away", () => {
+    const flagless = { ...RUBRIC, allowedFlags: [] };
+    for (const flags of [["none"], ["no_example"], []]) {
+      expect(parseScorerReply(flagless, reply({ flags }))).toMatchObject({ ok: true, reply: { flags: [] } });
+    }
   });
 });
 
