@@ -74,6 +74,13 @@ export default async function RoleSettingsPage({
                 </Link>
                 .
               </li>
+              <li>
+                For AI scores,{" "}
+                <Link href={`/admin/settings/scoring/${roleId}` as Route} className="underline underline-offset-4">
+                  write a rubric
+                </Link>{" "}
+                once the questions are published, then turn scoring on in Settings, AI scoring.
+              </li>
             </ol>
           </CardContent>
         </Card>
