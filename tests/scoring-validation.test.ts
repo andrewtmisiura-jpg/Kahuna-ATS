@@ -168,6 +168,15 @@ describe("findProtectedTraitWords", () => {
     expect(findProtectedTraitWords(["Stayed reliable through black ice and white-outs."])).toEqual([]);
   });
 
+  it("catches the illness, family and faith the missed-shift and mistake questions invite", () => {
+    expect(findProtectedTraitWords(["Missed a shift because their son was in the hospital."])).toEqual(["hospital", "son"]);
+    expect(findProtectedTraitWords(["Called in sick after surgery."])).toEqual(["sick", "surgery"]);
+    expect(findProtectedTraitWords(["Is Muslim and stopped work for prayer."])).toEqual(["muslim", "prayer"]);
+    expect(findProtectedTraitWords(["Despite a back condition and his medication."])).toEqual(["medication"]);
+    expect(findProtectedTraitWords(["Left early for childcare."])).toEqual(["childcare"]);
+    expect(findProtectedTraitWords(["Moved here from Somalia; speaks Somali and Hmong at home."])).toEqual(["somali", "hmong"]);
+  });
+
   it("covers each kind of protected trait the model is told to ignore", () => {
     for (const word of ["age", "retired", "pregnant", "mosque", "disability", "injury", "accent", "english", "immigrant", "citizen", "hispanic", "female", "woman", "man", "gender", "married", "children", "family", "veteran", "arrest", "conviction", "felony", "criminal", "jail"]) {
       expect(PROTECTED_TRAIT_KEYWORDS).toContain(word);
