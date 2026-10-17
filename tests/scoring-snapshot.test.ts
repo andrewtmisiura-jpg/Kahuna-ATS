@@ -64,13 +64,32 @@ describe("redactAnswerText", () => {
 
   it("replaces the person's names as whole words, ignoring case", () => {
     expect(redactAnswerText("I'm Pat Sample. PAT's boss liked SAMPLE work; Patrick and Pattern stay.", ["Pat", "Sample"])).toBe(
-      "I'm [redacted] [redacted]. [redacted]'s boss liked [redacted] work; Patrick and Pattern stay.",
+      "I'm [redacted]. [redacted]'s boss liked [redacted] work; Patrick and Pattern stay.",
     );
     // Each word of a longer name goes too.
     expect(redactAnswerText("Mary Ann said Mary and Ann; Annie stays. Ask Smith or Jones.", ["Mary Ann", "Smith-Jones"])).toBe(
       "[redacted] said [redacted] and [redacted]; Annie stays. Ask [redacted] or [redacted].",
     );
     expect(redactAnswerText("Nothing to hide.", [null, undefined, " "])).toBe("Nothing to hide.");
+  });
+
+  it("leaves everyday words alone when a name is one, and still takes the name", () => {
+    expect(redactAnswerText("I stayed as long as the job lasted. Tuan Long here, or tuan long.", ["Tuan", "Long"])).toBe(
+      "I stayed as long as the job lasted. [redacted] here, or [redacted].",
+    );
+    expect(redactAnswerText("I keep trying to reach my manager. I want to do it right. Minh To, again.", ["Minh", "To"])).toBe(
+      "I keep trying to reach my manager. I want to do it right. [redacted], again.",
+    );
+    expect(redactAnswerText("I called her the night before and told her. Mai Her.", ["Mai", "Her"])).toBe(
+      "I called her the night before and told her. [redacted].",
+    );
+    expect(redactAnswerText("I will tell the customer it will snow, signed Will Snow.", ["Will", "Snow"])).toBe(
+      "I will tell the customer it will snow, signed [redacted].",
+    );
+    expect(redactAnswerText("The shovel was in the van. Ask Van Dyke or Sam.", ["Sam", "Van Dyke"])).toBe("The shovel was in the van. Ask [redacted] or [redacted].");
+    expect(redactAnswerText("When I was young I drove on black ice. Mary Young, Young.", ["Mary", "Young"])).toBe(
+      "When I was young I drove on black ice. [redacted], [redacted].",
+    );
   });
 });
 
@@ -109,7 +128,7 @@ describe("buildApplicationSnapshot", () => {
     );
     const json = JSON.stringify(built).toLowerCase();
     for (const secret of ["jordan", "whitfield", "gmail", "@", "555", "0188"]) expect(json).not.toContain(secret);
-    expect(built.input.answers[0]!.answer).toBe("This is [redacted] [redacted]. My car died, so I texted my boss at 6am from [redacted] and emailed from [redacted].");
+    expect(built.input.answers[0]!.answer).toBe("This is [redacted]. My car died, so I texted my boss at 6am from [redacted] and emailed from [redacted].");
   });
 
   it("reports a criterion with no answer, so nothing is sent for a form that lacks its questions", () => {

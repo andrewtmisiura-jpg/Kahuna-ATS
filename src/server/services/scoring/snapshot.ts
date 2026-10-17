@@ -24,26 +24,64 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// A name as whole words, ignoring case: the name as given and, for a name of more than
-// one word (Mary Ann, Van Dyke, Smith-Jones), each word of two letters or more.
-function namePatterns(names: readonly (string | null | undefined)[]): RegExp[] {
-  const words = new Set<string>();
-  for (const name of names) {
-    const trimmed = name?.trim();
-    if (!trimmed) continue;
-    words.add(trimmed);
-    for (const part of trimmed.split(/[\s-]+/)) if (part.length >= 2) words.add(part);
-  }
+// Everyday words that are also people's names (Will, Long, Her, Van, Snow). A name made
+// only of these is redacted where it is written capitalized, as a name is, so "I will
+// tell the customer" or "as long as the job lasted" reaches the scorer whole for
+// someone named Will or Long; a two-letter one (To, Do, Ho) goes only inside the full name.
+const EVERYDAY_WORDS = new Set([
+  // Two letters
+  "an", "as", "at", "be", "by", "de", "do", "go", "ha", "he", "hi", "ho", "if", "in", "is", "it",
+  "la", "ma", "me", "my", "no", "of", "oh", "ok", "on", "or", "so", "to", "up", "us", "we",
+  // Longer
+  "amber", "april", "art", "august", "baker", "banks", "bell", "bill", "bird", "black", "bob", "brown",
+  "buck", "bud", "cash", "chase", "chin", "chip", "cook", "crystal", "daisy", "dawn", "day", "dean",
+  "drew", "faith", "fox", "frank", "frost", "gene", "gold", "grace", "grant", "gray", "green", "grey",
+  "guy", "hall", "hang", "hazel", "her", "hill", "holly", "honey", "hope", "hung", "hunt", "hunter",
+  "iris", "ivy", "jack", "joy", "june", "king", "lam", "lane", "lily", "little", "long", "love",
+  "mark", "may", "moon", "page", "pat", "penny", "price", "ray", "rice", "rich", "rob", "rose",
+  "ruby", "rusty", "sandy", "sharp", "short", "sky", "snow", "son", "song", "stone", "strong", "sue",
+  "summer", "sun", "sunny", "tan", "van", "white", "will", "wing", "winter", "wise", "wolf", "wood",
+  "woods", "young",
+]);
+
+// The words of a name: Mary Ann, Van Dyke and Smith-Jones have two each.
+function wordsOf(name: string): string[] {
+  return name.split(/[\s-]+/);
+}
+
+// Every word starts with a capital letter, the way a name is written.
+function capitalized(text: string): boolean {
+  return wordsOf(text).every((word) => /^\p{Lu}/u.test(word));
+}
+
+type NamePattern = { pattern: RegExp; capitalizedOnly: boolean };
+
+// A name as whole words, ignoring case: the name as given, the full name (first and
+// last together) and, for a name of more than one word (Mary Ann, Van Dyke,
+// Smith-Jones), each word of two letters or more. A name made only of everyday words
+// counts only where it is capitalized.
+function namePatterns(names: readonly (string | null | undefined)[]): NamePattern[] {
+  const given = names.map((name) => name?.trim()).filter((name): name is string => Boolean(name));
+  const candidates = new Set(given);
+  if (given.length > 1) candidates.add(given.join(" "));
+  for (const name of given) for (const part of wordsOf(name)) if (part.length >= 2) candidates.add(part);
+  const patterns: NamePattern[] = [];
   // Longest first, so "Mary Ann" goes before "Mary" leaves "Ann" behind.
-  return [...words]
-    .sort((a, b) => b.length - a.length)
-    .map((word) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(word)}(?![\\p{L}\\p{N}_])`, "giu"));
+  for (const candidate of [...candidates].sort((a, b) => b.length - a.length)) {
+    const everyday = wordsOf(candidate).every((word) => EVERYDAY_WORDS.has(word.toLowerCase()));
+    if (everyday && candidate.length <= 2) continue;
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(candidate).replace(/\s+/g, "\\s+")}(?![\\p{L}\\p{N}_])`, "giu");
+    patterns.push({ pattern, capitalizedOnly: everyday });
+  }
+  return patterns;
 }
 
 // The answer text with emails, US phone numbers and the given names replaced.
 export function redactAnswerText(text: string, names: readonly (string | null | undefined)[] = []): string {
   let redacted = text.replace(EMAIL, REDACTED).replace(PHONE, REDACTED);
-  for (const pattern of namePatterns(names)) redacted = redacted.replace(pattern, REDACTED);
+  for (const { pattern, capitalizedOnly } of namePatterns(names)) {
+    redacted = redacted.replace(pattern, (match) => (capitalizedOnly && !capitalized(match) ? match : REDACTED));
+  }
   return redacted;
 }
 
