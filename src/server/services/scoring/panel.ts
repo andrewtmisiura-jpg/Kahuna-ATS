@@ -1,7 +1,7 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { aiCriterionScore, aiScore, application, person, rubricCriterion, rubricVersion, rubricVersionCriterion, type AiScoreStatus } from "@/db/schema";
-import { liveRubric, pendingScoreJob } from "./jobs";
+import { aiCriterionScore, aiScore, application, job, person, rubricCriterion, rubricVersion, rubricVersionCriterion, type AiScoreStatus } from "@/db/schema";
+import { liveRubric, pendingScoreJob, SCORE_JOB } from "./jobs";
 import { loadSnapshotSource } from "./score-application";
 import { buildApplicationSnapshot, NeverSendLineageError } from "./snapshot";
 
@@ -32,6 +32,8 @@ export type ScoringPanelData = {
   current: ScoringPanelScore | null;
   // A score job for this application is waiting or running.
   pending: boolean;
+  // Its newest score job gave up, so no score comes until an Admin re-scores.
+  gaveUp: boolean;
   // The published version reads questions this application has no answers to, so it is not scored against it.
   missingAnswers: boolean;
   // The published version reads a question marked never to send to the AI, so nothing is scored until it is fixed.
@@ -56,7 +58,7 @@ export async function loadScoringPanel(db: Db, applicationId: string): Promise<S
   const live = await liveRubric(db, app.roleId);
   if (live?.mode !== "visible") return null;
 
-  const [current, pending] = await Promise.all([loadCurrentScore(db, app.id), pendingScoreJob(db, app.id)]);
+  const [current, pending, gaveUp] = await Promise.all([loadCurrentScore(db, app.id), pendingScoreJob(db, app.id), newestScoreJobDead(db, app.id)]);
   let missingAnswers = false;
   let readsNeverSend = false;
   if (live.versionId) {
@@ -73,7 +75,17 @@ export async function loadScoringPanel(db: Db, applicationId: string): Promise<S
       readsNeverSend = true;
     }
   }
-  return { publishedVersion: live.version, current, pending, missingAnswers, readsNeverSend };
+  return { publishedVersion: live.version, current, pending, gaveUp, missingAnswers, readsNeverSend };
+}
+
+async function newestScoreJobDead(db: Db, applicationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ status: job.status })
+    .from(job)
+    .where(and(eq(job.kind, SCORE_JOB), sql`${job.payload}->>'application_id' = ${applicationId}`))
+    .orderBy(desc(job.createdAt), desc(job.id))
+    .limit(1);
+  return row?.status === "dead";
 }
 
 async function loadCurrentScore(db: Db, applicationId: string): Promise<ScoringPanelScore | null> {

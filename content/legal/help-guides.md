@@ -246,7 +246,7 @@ The card says why, and a failed score never shows as a low number:
 
 - "Scoring soon." The score is on its way. It usually arrives within a few minutes of submitting.
 - "Not scored: this application doesn't have answers to the questions the rubric reads." This usually means an older application form without those questions.
-- "Not scored: the AI declined to score these answers," "the scoring call failed" or "the AI's reply didn't fit the rubric." An Admin can tap Re-score.
+- "Not scored: the AI declined to score these answers," "the scoring call failed," "the AI's reply didn't fit the rubric" or "scoring failed." An Admin can tap Re-score.
 - "Not scored: the rubric reads a question that is never sent to the AI." An Admin fixes the rubric.
 
 ### Who can do what

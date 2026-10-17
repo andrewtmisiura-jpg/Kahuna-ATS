@@ -38,12 +38,17 @@ export type JobsSummary = {
 // (queued or retry, run_at reached) with FOR UPDATE SKIP LOCKED, so overlapping passes
 // never run a job twice, marks it running, and runs it by its kind. A failure is retried
 // after 2, 4, 8, ... minutes (at most 60) until max_attempts, then the job is dead and
-// alerted once. A scoring job over the employer's daily cap waits for the next Central
-// day. No job is claimed once timeBudgetMs has passed.
+// alerted. A failed scoring call ends scoring for the pass, so an outage costs one
+// attempt a pass rather than one for every queued score; a refusal a retry will not fix
+// (no key, a key or model the API refuses) costs none. A scoring job over the employer's
+// daily cap waits for the next Central day. No job is claimed once timeBudgetMs has passed.
 
 // A job still running after this long was cut off (a crash, a deploy) and goes back to retry.
 export const STUCK_AFTER_MS = 15 * 60_000;
 const MAX_BACKOFF_MINUTES = 60;
+// A job the API refused waits this long, without spending an attempt, so a refusal that
+// only this application's request gets cannot hold up the rest of the queue.
+const REFUSED_WAIT_MS = 60 * 60_000;
 const ERROR_MAX_LENGTH = 500;
 
 type JobRow = typeof job.$inferSelect;
@@ -63,8 +68,8 @@ export async function runDueJobs(db: Db, options: RunJobsOptions): Promise<JobsS
   await queueMissingScores(db, options.now);
 
   let scorer = options.scorer ?? null;
-  // Set when the scorer cannot be reached for a reason a retry will not fix soon: no
-  // more scoring this pass, so one bad setting never runs through the queue.
+  // Set when a scoring call fails or cannot be made: no more scoring this pass, so an
+  // outage or one bad setting never runs through the queue.
   let scoringPaused = false;
   const capsAlerted = new Set<string>();
 
@@ -108,6 +113,15 @@ export async function runDueJobs(db: Db, options: RunJobsOptions): Promise<JobsS
     } catch (error) {
       const text = describeError(error);
       console.error(`[jobs] job ${claimed.id} (${claimed.kind}) attempt ${claimed.attempts} failed: ${text}`);
+      if (error instanceof ScorerError && error.kind === "unavailable") {
+        // Like a missing key: back as it was, without spending an attempt, until someone
+        // fixes the key or the account.
+        await releaseJob(db, next.before, { runAt: new Date(now.getTime() + REFUSED_WAIT_MS), lastError: text });
+        summary.retried += 1;
+        scoringPaused = true;
+        await alertScoringUnavailable(db, error, options.providers, now);
+        continue;
+      }
       const dead = error instanceof PermanentJobError || claimed.attempts >= claimed.maxAttempts;
       await failJob(db, claimed, text, dead, clock());
       if (dead) {
@@ -116,10 +130,7 @@ export async function runDueJobs(db: Db, options: RunJobsOptions): Promise<JobsS
       } else {
         summary.retried += 1;
       }
-      if (error instanceof ScorerError && error.kind === "unavailable") {
-        scoringPaused = true;
-        await alertScoringUnavailable(db, error, options.providers, now);
-      }
+      if (error instanceof ScorerError) scoringPaused = true;
     }
   }
   return summary;
@@ -211,9 +222,13 @@ async function failJob(db: Db, row: JobRow, error: string, dead: boolean, now: D
     .where(eq(job.id, row.id));
 }
 
-// Puts a claimed job back exactly as it was before the claim.
-async function releaseJob(db: Db, before: JobRow) {
-  await db.update(job).set({ status: before.status, attempts: before.attempts, lockedAt: null, lockedBy: null }).where(eq(job.id, before.id));
+// Puts a claimed job back as it was before the claim, its attempts included; `later`
+// also moves it back in the queue and says why.
+async function releaseJob(db: Db, before: JobRow, later?: { runAt: Date; lastError: string }) {
+  await db
+    .update(job)
+    .set({ status: before.status, attempts: before.attempts, lockedAt: null, lockedBy: null, ...later })
+    .where(eq(job.id, before.id));
 }
 
 // Jobs left running past STUCK_AFTER_MS go back to retry, or to dead (alerted) when that

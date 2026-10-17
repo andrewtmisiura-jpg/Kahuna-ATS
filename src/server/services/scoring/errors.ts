@@ -5,8 +5,9 @@ export type ScorerErrorKind =
   // Worth trying again in a few minutes: a timeout, a dropped connection, 429 or a 5xx.
   | "retryable"
   // A retry in minutes will not fix it: no key, a key the API refuses, a model the
-  // account cannot use, a request the API rejects. The job runner pauses scoring for
-  // the rest of the pass and alerts, so one bad setting never burns through the queue.
+  // account cannot use, a request the API rejects. The job runner puts the job back
+  // without spending an attempt, pauses scoring for the rest of the pass and alerts, so
+  // one bad setting never burns through the queue.
   | "unavailable";
 
 // Thrown by a Scorer for an error worth retrying later (the job runner decides); a

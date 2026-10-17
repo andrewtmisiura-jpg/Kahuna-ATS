@@ -92,6 +92,7 @@ function notScoredLine(data: ScoringPanelData): string {
   if (data.pending) return "Scoring soon.";
   if (current?.status === "failed") return current.error === REFUSAL_ERROR ? "Not scored: the AI declined to score these answers." : "Not scored: the scoring call failed.";
   if (current?.status === "invalid_output") return "Not scored: the AI's reply didn't fit the rubric.";
+  if (data.gaveUp) return "Not scored: scoring failed. An Admin can re-score.";
   if (data.publishedVersion === null) return "Not scored: this role's rubric has no published version yet.";
   return "Scoring soon.";
 }

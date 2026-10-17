@@ -157,11 +157,75 @@ describe("claiming and running", () => {
         },
       };
       const sink = createSinkProviders();
-      expect(await runDueJobs(tx, options({ scorer: refused, providers: sink }))).toMatchObject({ claimed: 1, retried: 1 });
+      const now = new Date();
+      expect(await runDueJobs(tx, options({ now, scorer: refused, providers: sink }))).toMatchObject({ claimed: 1, retried: 1, dead: 0 });
       expect(calls).toBe(1);
-      const states = [(await jobsFor(tx, first))[0]!.status, (await jobsFor(tx, second))[0]!.status].sort();
-      expect(states).toEqual(["queued", "retry"]);
+      // The refused job is back as it was, without an attempt spent, an hour later.
+      const rows = [(await jobsFor(tx, first))[0]!, (await jobsFor(tx, second))[0]!];
+      expect(rows.map((row) => [row.status, row.attempts, row.lockedAt])).toEqual([
+        ["queued", 0, null],
+        ["queued", 0, null],
+      ]);
+      const refusedJob = rows.find((row) => row.lastError !== null)!;
+      expect(refusedJob.lastError).toBe("Anthropic refused the scoring call (401 authentication_error)");
+      expect(refusedJob.runAt.getTime()).toBeGreaterThanOrEqual(now.getTime() + minutes(60));
       expect(sink.sent.filter((s) => s.channel === "email" && s.message.subject.includes("AI scoring is paused"))).toHaveLength(1);
+    });
+  });
+
+  it("spends no attempt while the call is refused, pass after pass, and scores everything once it goes through", async () => {
+    await withRollback(db, async (tx) => {
+      const role = await createScoringRole(tx, { adminId });
+      const ids = [await submitted(tx, role), await submitted(tx, role), await submitted(tx, role)];
+      const refused: Scorer = {
+        score: async () => {
+          throw new ScorerError("unavailable", "Anthropic refused the scoring call (401 authentication_error)");
+        },
+      };
+      const sink = createSinkProviders();
+      const start = new Date();
+      let now = start;
+      // Forty passes five minutes apart: over three hours of a revoked key.
+      for (let pass = 0; pass < 40; pass += 1) {
+        expect(await runDueJobs(tx, options({ now, scorer: refused, providers: sink }))).toMatchObject({ succeeded: 0, dead: 0 });
+        now = new Date(now.getTime() + minutes(5));
+      }
+      const rows = await tx.select().from(job).where(inArray(raw`${job.payload}->>'application_id'`, ids));
+      expect(rows.map((row) => [row.status, row.attempts])).toEqual(ids.map(() => ["queued", 0]));
+      const emails = (words: string) => sink.sent.filter((s) => s.channel === "email" && s.message.subject.includes(words));
+      expect(emails("gave up")).toHaveLength(0);
+      // One "paused" email an hour, not one a pass.
+      const hours = new Set(Array.from({ length: 40 }, (_, pass) => Math.floor((start.getTime() + minutes(5 * pass)) / minutes(60))));
+      expect(emails("AI scoring is paused")).toHaveLength(hours.size);
+
+      // The key is fixed: within the hour every job is scored.
+      expect(await runDueJobs(tx, options({ now: new Date(now.getTime() + minutes(60)), providers: sink }))).toMatchObject({ claimed: 3, succeeded: 3 });
+      expect(await tx.select().from(aiScore).where(inArray(aiScore.applicationId, ids))).toHaveLength(3);
+    });
+  });
+
+  it("stops scoring for the rest of the pass after a call fails, so an outage costs one attempt a pass", async () => {
+    await withRollback(db, async (tx) => {
+      const role = await createScoringRole(tx, { adminId });
+      const first = await submitted(tx, role);
+      const second = await submitted(tx, role);
+      let calls = 0;
+      const overloaded: Scorer = {
+        score: async () => {
+          calls += 1;
+          throw new ScorerError("retryable", "Anthropic answered 529 overloaded_error; trying again later");
+        },
+      };
+      const sink = createSinkProviders();
+      expect(await runDueJobs(tx, options({ scorer: overloaded, providers: sink }))).toMatchObject({ claimed: 1, retried: 1 });
+      expect(calls).toBe(1);
+      const rows = [(await jobsFor(tx, first))[0]!, (await jobsFor(tx, second))[0]!];
+      expect(rows.map((row) => [row.status, row.attempts]).sort()).toEqual([
+        ["queued", 0],
+        ["retry", 1],
+      ]);
+      // A blip a retry fixes is no reason to email anyone.
+      expect(sink.sent.filter((s) => s.channel === "email")).toHaveLength(0);
     });
   });
 

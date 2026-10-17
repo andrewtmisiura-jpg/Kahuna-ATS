@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, sql as raw } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sql } from "@/db";
-import { aiScore, rubric } from "@/db/schema";
+import { aiScore, job, rubric } from "@/db/schema";
 import { seedPhase1 } from "@/db/seed";
 import { boardFilterParams, loadBoard, parseBoardFilters } from "@/server/services/applications/board";
 import {
@@ -190,6 +190,19 @@ describe("the profile panel", () => {
 
       await tx.update(rubric).set({ scoringMode: "hidden" }).where(eq(rubric.id, role.rubricId));
       expect(await loadScoringPanel(tx, failed.applicationId)).toBeNull();
+    });
+  });
+
+  it("says scoring failed, not that a score is coming, once the job has given up", async () => {
+    await withRollback(db, async (tx) => {
+      const role = await createScoringRole(tx, { adminId, mode: "visible" });
+      const { applicationId } = await submitScoringApplication(tx, role, { commitment: "Called ahead.", mistake: "Told them." });
+      await tx.update(job).set({ status: "dead", attempts: 5, finishedAt: new Date() }).where(raw`${job.payload}->>'application_id' = ${applicationId}`);
+      expect(await loadScoringPanel(tx, applicationId)).toMatchObject({ current: null, pending: false, gaveUp: true });
+
+      // A re-score is on its way again.
+      await requestRescore(tx, { applicationId, actorUserId: adminId });
+      expect(await loadScoringPanel(tx, applicationId)).toMatchObject({ pending: true, gaveUp: false });
     });
   });
 });
