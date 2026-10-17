@@ -92,6 +92,11 @@ export function ApplicantRows({ page, stages, crews, canAct, profileQuery }: Pro
                   <Link href={`/admin/applicants/${row.id}?${profileQuery}` as Route} className="text-base font-medium hover:underline">
                     {fullName(row.firstName, row.lastName)}
                   </Link>
+                  {row.aiScore !== null ? (
+                    <Badge variant="secondary" className="tabular-nums" title="AI score out of 100, a sorting aid only">
+                      AI score {row.aiScore}
+                    </Badge>
+                  ) : null}
                   {row.returning !== "none" ? (
                     <Badge variant={row.returning === "not_rehire_eligible" ? "destructive" : "secondary"}>
                       {row.returning === "not_rehire_eligible" ? "Returning, not rehire eligible" : "Returning"}

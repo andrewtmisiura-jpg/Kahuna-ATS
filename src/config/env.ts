@@ -44,6 +44,8 @@ export const envSchema = z.object({
   // "live" scores with the Anthropic model, "fake" uses the deterministic stand-in that
   // calls nothing. Defaults to live in production and fake everywhere else.
   SCORING_PROVIDER: z.enum(["live", "fake"]).optional(),
+  // The model the live scorer calls. Each score stores the id of the model that answered.
+  SCORING_MODEL: z.string().default("claude-opus-5-5"),
 });
 
 export type Env = z.infer<typeof envSchema>;

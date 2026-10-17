@@ -1,3 +1,4 @@
+import { redactAnswerText } from "./snapshot";
 import type { RubricForScoring, ScoredResult, Scorer, ScoringAnswer, ScoringInput } from "./types";
 
 // The app's half of scoring (PLAN.md, "The 1 to 100 score"; DATA_MODEL.md, ai_score).
@@ -54,8 +55,10 @@ export type AnswersByQuestionKey = Readonly<Record<string, AnswerForScoring | nu
 
 // The input a scorer is sent: for each criterion in order, the answers to the questions
 // it reads, under a fresh anonymous id. Only the rubric's own questions are read, so
-// nothing else in answersByQuestionKey can reach the model; blank answers are left out.
-// Basic for now: names or numbers typed into an answer are not redacted yet.
+// nothing else in answersByQuestionKey can reach the model; blank answers are left out,
+// and email addresses and phone numbers in an answer become [redacted]. This is the
+// rubric editor's Try it, which has no person; a real application goes through
+// buildApplicationSnapshot (snapshot.ts), which also redacts the person's name.
 export function buildScoringInputFromAnswers(
   rubric: RubricForScoring,
   answersByQuestionKey: AnswersByQuestionKey,
@@ -68,22 +71,24 @@ export function buildScoringInputFromAnswers(
       if (given === null || given === undefined) continue;
       const { prompt, answer } = typeof given === "string" ? { prompt: question.prompt, answer: given } : given;
       if (!answer.trim()) continue;
-      answers.push({ criterionKey: criterion.key, questionKey: question.key, prompt, answer: answer.trim() });
+      answers.push({ criterionKey: criterion.key, questionKey: question.key, prompt, answer: redactAnswerText(answer.trim()) });
     }
   }
   return { anonymousId, answers };
 }
 
 // Runs one scorer on one input and puts the app's overall score on a success. A success
-// whose grades do not fit the rubric (a criterion missing, unknown or graded twice, a
-// grade outside 1 to 5) comes back as invalid_output. A scorer that throws throws here
-// too, so the job runner can retry. Thin for now: the scoring build adds the flag and
-// keyword checks.
+// that does not fit the rubric (a criterion missing, unknown or graded twice, a grade
+// outside 1 to 5, a flag not on the rubric's list) comes back as invalid_output, never
+// as a low number. A scorer that throws throws here too, so the job runner can retry.
 export async function scoreWithRubric(rubric: RubricForScoring, input: ScoringInput, scorer: Scorer): Promise<ScoredResult> {
   const result = await scorer.score(rubric, input);
   if (result.status !== "succeeded") return result;
   try {
-    return { ...result, overallScore: computeOverallScore(result.criteria, rubricWeights(rubric)) };
+    const allowed = new Set(rubric.allowedFlags.map((flag) => flag.key));
+    const unknown = result.flags.filter((flag) => !allowed.has(flag));
+    if (unknown.length > 0) throw new Error(`Flag ${unknown.join(", ")} is not on the rubric's list`);
+    return { ...result, flags: [...new Set(result.flags)], overallScore: computeOverallScore(result.criteria, rubricWeights(rubric)) };
   } catch (error) {
     return {
       status: "invalid_output",
