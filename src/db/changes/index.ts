@@ -1,5 +1,7 @@
+import { legalName } from "./legal-name";
 import { phase2Templates } from "./phase2-templates";
 import { snowBehavioralQuestions } from "./snow-behavioral-questions";
+import { snowNoOneOnOne } from "./snow-no-one-on-one";
 import { snowStarterRubric } from "./snow-starter-rubric";
 import type { Change } from "./types";
 
@@ -10,7 +12,7 @@ import type { Change } from "./types";
 // snowStarterRubric reads the questions snowBehavioralQuestions publishes, so it
 // stays after it; a new change goes at the end.
 
-export const CHANGES: readonly Change[] = [snowBehavioralQuestions, phase2Templates, snowStarterRubric];
+export const CHANGES: readonly Change[] = [snowBehavioralQuestions, phase2Templates, snowStarterRubric, legalName, snowNoOneOnOne];
 
 export type { Change, ChangeContext } from "./types";
 export { ChangeError, runChanges, type ChangeReport } from "./runner";

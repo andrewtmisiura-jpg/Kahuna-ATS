@@ -43,7 +43,7 @@ test.describe("roles and stages", () => {
     await expect(page.getByRole("heading", { level: 1, name: "New role" })).toBeVisible({ timeout: 30_000 });
 
     await page.getByLabel("Copy from").selectOption({ label: "Snow Removal Technician (on-call)" });
-    await expect(page.getByText(/^Copies 8 stages, \d+ questions from its live form/)).toBeVisible();
+    await expect(page.getByText(/^Copies 6 stages, \d+ questions from its live form/)).toBeVisible();
     await page.getByLabel("Job title applicants see").fill(title);
     // The staff name follows the title until it is edited.
     await expect(page.getByLabel("Name staff see")).toHaveValue(title);
@@ -57,9 +57,9 @@ test.describe("roles and stages", () => {
     await expect(page.getByRole("link", { name: "Edit the questions" }).first()).toBeVisible();
     await expect(page.getByText("No openings yet.", { exact: false })).toBeVisible();
 
-    // The snow pipeline came across.
+    // The snow pipeline came across (its one-on-one stages were archived on Oct 19).
     const stages = page.getByRole("list", { name: "Stages" });
-    await expect(stages.getByRole("listitem")).toHaveCount(8);
+    await expect(stages.getByRole("listitem")).toHaveCount(6);
     await expect(stages.getByRole("listitem").first()).toContainText("1. Started");
     await expect(stages).toContainText("Background or driving check");
     await expect(page.getByRole("button", { name: "Move Started up" })).toBeDisabled();
@@ -74,19 +74,19 @@ test.describe("roles and stages", () => {
     await dialog.getByLabel("Put it after").selectOption({ label: "Reviewed" });
     await dialog.getByRole("button", { name: "Add stage" }).click();
     await expect(dialog).toBeHidden();
-    await expect(stages.getByRole("listitem")).toHaveCount(9);
+    await expect(stages.getByRole("listitem")).toHaveCount(7);
     await expect(stages.getByRole("listitem").nth(3)).toContainText("4. Phone screen");
     await expect(stages.getByRole("listitem").nth(3)).toContainText("Custom, no milestone");
 
-    // Down one: it now follows One-on-one invited.
+    // Down one: it now follows Conditional offer.
     await page.getByRole("button", { name: "Move Phone screen down" }).click();
     await expect(stages.getByRole("listitem").nth(4)).toContainText("5. Phone screen");
-    await expect(stages.getByRole("listitem").nth(3)).toContainText("One-on-one invited");
+    await expect(stages.getByRole("listitem").nth(3)).toContainText("Conditional offer");
 
     // The roles list shows the new role with its draft form.
     await page.getByRole("link", { name: "All roles" }).click();
     const card = page.getByRole("link", { name: new RegExp(title) });
-    await expect(card).toContainText("9 stages");
+    await expect(card).toContainText("7 stages");
     await expect(card).toContainText("Draft v1");
   });
 });

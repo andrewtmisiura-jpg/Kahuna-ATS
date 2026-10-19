@@ -7,13 +7,19 @@ import { phase2Templates } from "../src/db/changes/phase2-templates";
 import * as schema from "../src/db/schema";
 import { seedPhase1 } from "../src/db/seed";
 import { uuidv7 } from "../src/lib/uuid";
+import { staffActor } from "../src/server/services/actor";
 import { createApplication, transition } from "../src/server/services/applications/transition";
+import { addOpening, createRoleFromTemplate } from "../src/server/services/config/roles";
+import { publishForm } from "../src/server/services/forms/publish";
 import { recordConsent } from "../src/server/services/messaging/consent";
+import { findUserByEmail } from "../src/server/services/users";
 
 // Message templates on a phone, signed in through the development bypass: an Admin edits
 // the status update text and watches the preview, and a move to One-on-one invited with
 // the invite ticked queues the invite as a text, shown in the profile's thread. The sink
 // provider is in use locally and nothing sends during the test (the cron is not running).
+// Snow has no one-on-ones since Oct 19 and window cleaning has no published form yet, so
+// the invite runs on a throwaway copy of window cleaning, archived afterwards.
 
 test.describe("message templates", () => {
   test.skip(!process.env.DEV_AUTH_EMAIL || !process.env.DATABASE_URL, "needs DEV_AUTH_EMAIL and DATABASE_URL");
@@ -27,6 +33,7 @@ test.describe("message templates", () => {
   let setBookingLink = false;
   let statusText: { id: string; name: string; body: string };
   let applicationId: string;
+  let testRoleId: string | undefined;
 
   test.beforeAll(async () => {
     sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
@@ -54,9 +61,21 @@ test.describe("message templates", () => {
       );
     statusText = { id: status!.id, name: status!.name, body: status!.body };
 
-    // A submitted snow applicant who ticked the text box.
-    const [snow] = await db.select({ id: schema.role.id }).from(schema.role).where(eq(schema.role.key, "snow_removal_tech"));
-    const [open] = await db.select({ id: schema.opening.id }).from(schema.opening).where(eq(schema.opening.roleId, snow!.id));
+    // A copy of window cleaning (its one-on-one stages and questions) with its form published
+    // and a draft opening, then a submitted applicant there who ticked the text box.
+    const admin = await findUserByEmail(db, process.env.ADMIN_EMAIL ?? process.env.DEV_AUTH_EMAIL!);
+    const actor = staffActor(admin!.id);
+    const [windowRole] = await db.select({ id: schema.role.id }).from(schema.role).where(eq(schema.role.key, "window_cleaning_tech"));
+    const copy = await createRoleFromTemplate(db, {
+      actor,
+      templateRoleId: windowRole!.id,
+      title: `Invite test ${stamp}`,
+      internalName: `Invite test ${stamp}`,
+      key: `invite_test_${stamp}`,
+    });
+    testRoleId = copy.roleId;
+    await publishForm(db, { formVersionId: copy.formVersionId!, changeReason: "Playwright invite test role", actor });
+    const { openingId } = await addOpening(db, { actor, roleId: copy.roleId, name: `Invite test ${stamp}`, key: `invite-test-${stamp}` });
     const personId = uuidv7();
     const mobile = `+19525${stamp.slice(-6)}`;
     await db.insert(schema.person).values({
@@ -69,9 +88,9 @@ test.describe("message templates", () => {
     });
     const created = await createApplication(db, {
       personId,
-      openingId: open!.id,
-      origin: "landing",
-      entryChannel: "role_qr",
+      openingId,
+      origin: "staff_created",
+      entryChannel: "staff_entered",
       actor: { type: "applicant" },
       occurredAt: new Date(Date.now() - 2 * 86_400_000),
     });
@@ -99,6 +118,7 @@ test.describe("message templates", () => {
       await sql`update message set status = 'canceled' where application_id = ${applicationId} and status = 'queued'`;
       await sql`update application set deleted_at = now() where id = ${applicationId}`;
     }
+    if (testRoleId) await sql`update role set archived_at = now() where id = ${testRoleId}`;
     if (setBookingLink) await sql`update employer set booking_link_url = null where id = ${employerId} and booking_link_url = ${sampleLink}`;
     await sql.end();
   });

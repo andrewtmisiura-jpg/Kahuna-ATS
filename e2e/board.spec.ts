@@ -234,7 +234,8 @@ test.describe("board on a desktop", () => {
     await handle.focus();
     await page.keyboard.press("Space");
     await expect(handle).toHaveAttribute("aria-pressed", "true");
-    for (const next of ["One-on-one invited", "One-on-one done", "Conditional offer", "Background or driving check", "Hired", "Close"]) {
+    // Snow has no one-on-one stages since Oct 19 (the snow-no-one-on-one change).
+    for (const next of ["Conditional offer", "Background or driving check", "Hired", "Close"]) {
       await page.keyboard.press("ArrowRight");
       await expect(page.getByRole("status").filter({ hasText: `${fullName(backer)} is over ${next}.` })).toBeAttached();
     }

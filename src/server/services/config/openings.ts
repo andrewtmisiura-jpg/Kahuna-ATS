@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import type { Db } from "@/db";
-import { opening, role } from "@/db/schema";
+import { employer, opening, pipelineStage, role } from "@/db/schema";
 import type { Actor } from "@/server/services/actor";
 import { diffChanges, writeAudit } from "@/server/services/audit";
 import { ConfigError, PG_UNIQUE_VIOLATION, pgErrorCode } from "./errors";
@@ -44,6 +44,33 @@ export async function listOpenings(db: Db): Promise<OpeningListRow[]> {
     .innerJoin(role, eq(role.id, opening.roleId))
     .orderBy(asc(role.sortOrder), desc(opening.opensOn), desc(opening.createdAt));
   return rows.map((r) => ({ ...r.opening, roleName: r.roleName, roleKey: r.roleKey, roleSortOrder: r.roleSortOrder }));
+}
+
+export type RoleWaitingOnBookingLink = { roleId: string; roleName: string };
+
+// Roles that invite people to a one-on-one (a live stage at the interview_invited
+// milestone) and have a draft or open opening, while no booking link is set: their
+// invites cannot go out yet. Settings > Openings shows these as a reminder, since the
+// window opening is months off when the link is first needed (owner, Oct 19, 2026).
+export async function rolesWaitingOnBookingLink(db: Db): Promise<RoleWaitingOnBookingLink[]> {
+  const [emp] = await db
+    .select({ id: employer.id, bookingLinkUrl: employer.bookingLinkUrl })
+    .from(employer)
+    .where(isNull(employer.archivedAt))
+    .orderBy(asc(employer.createdAt))
+    .limit(1);
+  if (!emp || emp.bookingLinkUrl) return [];
+  return db
+    .selectDistinct({ roleId: role.id, roleName: role.internalName, sortOrder: role.sortOrder })
+    .from(role)
+    .innerJoin(
+      pipelineStage,
+      and(eq(pipelineStage.roleId, role.id), isNull(pipelineStage.archivedAt), eq(pipelineStage.milestone, "interview_invited")),
+    )
+    .innerJoin(opening, and(eq(opening.roleId, role.id), ne(opening.status, "closed")))
+    .where(and(eq(role.employerId, emp.id), isNull(role.archivedAt)))
+    .orderBy(asc(role.sortOrder))
+    .then((rows) => rows.map(({ roleId, roleName }) => ({ roleId, roleName })));
 }
 
 export async function getOpening(db: Db, id: string): Promise<OpeningRow | null> {
