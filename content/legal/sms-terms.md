@@ -6,7 +6,6 @@ Published at https://tidepool.kahunawindowcleaning.com/sms-terms
 Written Wed Oct 14, 2026 from docs/PLAN.md and docs/DATA_MODEL.md.
 
 OWNER INPUT placeholders in this file:
-- [OWNER INPUT: legal entity name]
 - [OWNER INPUT: hiring email]
 - [OWNER INPUT: effective date]
 
@@ -27,7 +26,7 @@ These terms cover the text messages Kahuna Window Cleaning sends from **763-292-
 
 - **Program name:** Kahuna Window Cleaning Hiring
 - **Number we text from:** 763-292-2259
-- **Who sends it:** Kahuna Window Cleaning ([OWNER INPUT: legal entity name]), Twin Cities, Minnesota
+- **Who sends it:** Kahuna Window Cleaning (Blue Skies Window Washing, LLC), Twin Cities, Minnesota
 
 ## Who gets these texts
 

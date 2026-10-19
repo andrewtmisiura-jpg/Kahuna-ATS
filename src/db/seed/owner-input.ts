@@ -5,14 +5,10 @@
 
 export const DRAFT_MARK = "DRAFT";
 
-function draft(note: string) {
-  return `${DRAFT_MARK}: ${note}`;
-}
-
 export const ownerInput = {
   employer: {
-    // Exactly as on the IRS EIN letter (the carrier registration must match).
-    legalName: draft("Kahuna Window Cleaning (confirm the legal name on the IRS EIN letter)"),
+    // Exactly as on the IRS EIN letter (the carrier registration must match). Owner, Oct 19.
+    legalName: "Blue Skies Window Washing, LLC",
     websiteUrl: null as string | null,
     // On the domain Resend already verifies for REEF or Typhoon.
     emailFromAddress: "hiring@kahunawindowcleaning.com" as string | null,

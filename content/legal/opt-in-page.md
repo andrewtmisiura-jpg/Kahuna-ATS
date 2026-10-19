@@ -9,7 +9,6 @@ whenever sms_consent gets a new version.
 Written Wed Oct 14, 2026 from docs/PLAN.md and docs/DATA_MODEL.md.
 
 OWNER INPUT placeholders in this file:
-- [OWNER INPUT: legal entity name]
 - [OWNER INPUT: hiring email]
 - [OWNER INPUT: website URL]
 
@@ -23,7 +22,7 @@ messages in sync with messages.md.
 
 # Text messages from Kahuna Window Cleaning Hiring
 
-Kahuna Window Cleaning ([OWNER INPUT: legal entity name]) is a window cleaning and snow removal company in the Twin Cities, Minnesota. When you apply for a job with us online, you can choose to get text messages about your application from our hiring number, **763-292-2259**. This page explains how that works.
+Kahuna Window Cleaning (Blue Skies Window Washing, LLC) is a window cleaning and snow removal company in the Twin Cities, Minnesota. When you apply for a job with us online, you can choose to get text messages about your application from our hiring number, **763-292-2259**. This page explains how that works.
 
 ## How you opt in
 

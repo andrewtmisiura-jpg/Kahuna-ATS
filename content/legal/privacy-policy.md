@@ -6,7 +6,6 @@ Published at https://tidepool.kahunawindowcleaning.com/privacy
 Written Wed Oct 14, 2026 from docs/PLAN.md and docs/DATA_MODEL.md.
 
 OWNER INPUT placeholders in this file (fill every one before publishing):
-- [OWNER INPUT: legal entity name]
 - [OWNER INPUT: mailing address]
 - [OWNER INPUT: office phone]
 - [OWNER INPUT: hiring email]
@@ -31,7 +30,7 @@ This policy explains what Kahuna Window Cleaning collects when you apply for a j
 
 ## Who we are
 
-Kahuna Window Cleaning is the business name of [OWNER INPUT: legal entity name], a window cleaning and snow removal company in the Twin Cities, Minnesota. We are the employer for the jobs posted on this site, and we are responsible for the information you give us here.
+Kahuna Window Cleaning is the business name of Blue Skies Window Washing, LLC, a window cleaning and snow removal company in the Twin Cities, Minnesota. We are the employer for the jobs posted on this site, and we are responsible for the information you give us here.
 
 This site is only for job applications. We do not use it for customers or for marketing.
 

@@ -1197,7 +1197,7 @@ Values marked **OWNER INPUT** come from a seed config file you approve. `db:seed
 | Field | Value |
 |---|---|
 | key | `kahuna` |
-| legal_name | OWNER INPUT (exactly as on the IRS EIN letter, which you confirmed matches the Quo registration) |
+| legal_name | Blue Skies Window Washing, LLC (owner, Oct 19, 2026; exactly as on the IRS EIN letter, which matches the Quo registration). Filled into production and the live legal texts by the `2026-10-19-legal-name` change |
 | display_name | Kahuna Window Cleaning |
 | website_url | OWNER INPUT |
 | hiring_host | `tidepool.kahunawindowcleaning.com` |
